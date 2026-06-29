@@ -42,10 +42,11 @@ Create a TodoWrite item per step and work them top to bottom.
    sections from this session's real history). The raw record runs first.
 5. **Docs zero-drift.** Reconcile the project's living docs (gathered in step 1) to what
    the code/state actually is now. Spot-check the claims that changed this session, or
-   spawn a verifier agent for a true zero-drift check; fix any drift. **If the project
-   ships a reconciler** (e.g. TigerClaw's `doc-keeper` agent for its SOTU/PROGRESS set),
-   use it; **otherwise reconcile the docs directly** (README/CHANGELOG/index). Leave
-   evergreen process docs (CLAUDE.md / AGENTS.md / GROUND_TRUTH-style) alone.
+   spawn a verifier agent for a true zero-drift check; fix any drift. Use the
+   project-agnostic **`doc-keeper`** skill (it discovers and reconciles whatever docs
+   the project has); for the **Tiger Claw** repo use the specialized **`tiger-doc-keeper`**
+   (it knows that repo's SOTU/PROGRESS set + doc-CI guards). Leave evergreen process
+   docs (CLAUDE.md / AGENTS.md / GROUND_TRUTH-style) alone.
 6. **Memory.** Write the session's durable facts to memory: what shipped, key decisions
    and *why*, any new working rule. Convert relative dates to absolute. Add/refresh the
    one-line pointers in `MEMORY.md`. Don't save what the repo/git already records.

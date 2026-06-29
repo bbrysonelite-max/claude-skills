@@ -14,8 +14,8 @@ It is the **complement to the docs-reconcile step**:
 - **context-keeper** (this) — writes the immutable session snapshot (`.claude/sessions/`).
 - **the project's living-docs reconcile** — brings the project's "dashboard"/status docs
   (whatever it has: README, CHANGELOG, status/handoff doc, ADRs, a domain index, punch-lists)
-  back to current truth. On TigerClaw that's the `doc-keeper` agent; on another project it's
-  reconciling those docs directly. context-keeper does NOT do this — it's the raw record only.
+  back to current truth — via the project-agnostic `doc-keeper` skill; on the Tiger Claw
+  repo that's the specialized `tiger-doc-keeper` (knows SOTU/PROGRESS + doc-CI guards). context-keeper does NOT do this — it's the raw record only.
 
 At session close the order is: **context-keeper → docs reconcile** (and `closing-ritual`
 wraps both). Don't duplicate the docs step or auto-memory here.
