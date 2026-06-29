@@ -1,0 +1,20 @@
+{
+  "controlNumber": "004",
+  "variation": "marketing",
+  "recipient": "Jon Jackson",
+  "recipientLabel": "Prepared exclusively for",
+  "author": "Brent Bryson",
+  "entity": "Mariah Marketing LLC",
+  "date": "June 27, 2026",
+  "title": "A PRIVATE<br/>TEAM <span class=\"orange\">OPPORTUNITY</span>",
+  "subtitle": "An AI follow-up agent your team can run as its own — built so the prospects your people care about never fall through the cracks again.",
+  "tagline": "Fortune is in the follow-up.",
+  "confidential": true,
+  "receipt": {
+    "include": true,
+    "issuedTo": "Jon Jackson",
+    "returnEmail": "support@tigerclaw.io"
+  },
+  "bodyHtmlPath": "body.example.html",
+  "outPath": "whitepaper-004-example.pdf"
+}
