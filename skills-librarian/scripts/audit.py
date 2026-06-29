@@ -17,6 +17,8 @@ INDEX = os.environ.get("SKILLS_INDEX", os.path.expanduser("~/Desktop/Truth/SKILL
 IGNORE = {"heygen-skills"}
 # Repo/OS metadata — the shelf is a git-backed backup; these are infrastructure, never skills or cruft.
 REPO_META = {".git", ".gitignore", ".gitattributes", ".github", ".DS_Store", "__pycache__"}
+# Intentional root-level docs (not skills, not cruft) — allowed at the shelf root.
+ROOT_DOCS = {"README.md", "AGENTS-CATALOG.md"}
 
 def frontmatter(path):
     """Return dict of top-level frontmatter keys; description handles >|block scalars."""
@@ -96,7 +98,7 @@ def main():
             elif nm != n:
                 issues.append(f"MISMATCH folder={n} name:={nm}")
         for f in sorted(os.listdir(SK)):
-            if f in REPO_META or f.startswith("."):
+            if f in REPO_META or f in ROOT_DOCS or f.startswith("."):
                 continue
             p = os.path.join(SK, f)
             if not os.path.isdir(p):
