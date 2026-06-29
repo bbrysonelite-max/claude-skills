@@ -31,8 +31,16 @@ Keeps the installed skill shelf clean and the index true. The **live** folder
    as the source data. **Preserve Brent's curated category groupings** (Core business, etc.);
    only refresh the per-skill one-liners, the membership, and the header line
    (`Audited & verified: <DATE>. Count: <N>`). Don't flatten his structure.
-6. **Verify** (ground-truth, don't claim): re-run `audit.sh` → 0 integrity issues; confirm
+6. **Verify** (ground-truth, don't claim): re-run `audit.py` → 0 integrity issues; confirm
    the index count equals the live folder count. Report the before/after.
+7. **Back up the shelf to its GitHub mirror** — the librarian owns keeping the backup current,
+   not Brent's memory. `scripts/backup.sh` (dry-run) then `scripts/backup.sh --confirm`:
+   integrity-gates on audit → `git add -A` (symlinks + nested repos are `.gitignore`d, so this
+   is safe) → **secret-scans the staged diff** (hard stop on any hit) → commits + pushes to
+   `origin/main` → verifies `HEAD==origin/main`. Run it whenever skills change (new skill,
+   edit, index regen). Already-in-sync → it no-ops. **Mirror repo:** `bbrysonelite-max/claude-skills`
+   (private). This is the one place `main` is pushed directly — it's a backup mirror, not a
+   PR/deploy repo; the only mutation (`--confirm`) is gated like ship-it's merge.
 
 ## Rules
 
@@ -48,4 +56,6 @@ Keeps the installed skill shelf clean and the index true. The **live** folder
 ```bash
 python3 scripts/audit.py            # integrity report (read-only)
 python3 scripts/audit.py diff-index # new vs stale vs the index
+scripts/backup.sh                   # dry-run: gate + secret-scan + show what would sync
+scripts/backup.sh --confirm         # commit + push the shelf to its private GitHub mirror
 ```
