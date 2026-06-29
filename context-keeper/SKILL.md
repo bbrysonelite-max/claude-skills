@@ -1,13 +1,14 @@
 ---
 name: context-keeper
-description: Write the append-only per-session flight recorder to the TigerClaw repo's .claude/sessions/ — a dated, numbered snapshot of what THIS session decided, discovered, shipped, verified (vs not), and the next step. The complement to doc-keeper (it records the session; doc-keeper reconciles the living dashboard docs). Use at session close BEFORE doc-keeper, or when Brent says "context keeper", "save the session", "write the flight recorder", "snapshot this session", "record the session". Append-only — one new file per session, never edits prior snapshots, never overclaims.
+description: Write the append-only per-session flight recorder to the CURRENT project's .claude/sessions/ — a dated, numbered snapshot of what THIS session decided, discovered, shipped, verified (vs not), and the next step. Project-agnostic — defaults to the current git repo root (override with CONTEXT_KEEPER_DIR). The complement to doc-keeper (it records the session; doc-keeper reconciles the living dashboard docs). Use at session close BEFORE doc-keeper, or when Brent says "context keeper", "save the session", "write the flight recorder", "snapshot this session", "record the session". Append-only — one new file per session, never edits prior snapshots, never overclaims.
 ---
 
 # context-keeper
 
 Writes the **session flight recorder**: one append-only file per working session at
-`~/tiger-claw-v4-core/.claude/sessions/YYYY-MM-DD_session-NNN.md`. It captures what
-happened so the next session resumes with full context and nothing rots.
+`<project-root>/.claude/sessions/YYYY-MM-DD_session-NNN.md` — where `<project-root>` is
+the current git repo (or `CONTEXT_KEEPER_DIR` if set). It captures what happened so the
+next session resumes with full context and nothing rots. Works for ANY project, not just one.
 
 It is the **complement to `doc-keeper`**:
 - **context-keeper** (this) — writes the immutable session snapshot (`.claude/sessions/`).
@@ -36,8 +37,8 @@ wraps both). Don't duplicate doc-keeper or auto-memory here — this is the raw 
 
 - Writes ONLY to `.claude/sessions/`. Does not touch dashboard docs (doc-keeper's job),
   timeless-rules docs (AGENTS.md/CLAUDE.md/SACRED_WIRING.md), or code.
-- Config: `CONTEXT_KEEPER_DIR` overrides the sessions directory (default
-  `~/tiger-claw-v4-core/.claude/sessions`).
+- Config: `CONTEXT_KEEPER_DIR` overrides the sessions directory (default = the current
+  git repo root's `.claude/sessions`, else `$PWD/.claude/sessions`).
 
 ## Quick start
 
