@@ -40,14 +40,14 @@ ${headline}
 - <what we learned about the system / ground truth that wasn't obvious before>
 
 ## 3. Shipped / changed
-- <PRs (numbers), merge SHAs, deploys — with UTC timestamps and live /health proof where it applies>
+- <PRs (numbers), merge SHAs, deploys — with UTC timestamps and live proof where it applies (a health check, a passing run, observed output)>
 
 ## 4. Verified vs unverified
 - Verified live: <what was actually proven, how>
 - NOT yet verified: <what is claimed but not exercised — name the gap, do not paper over it>
 
 ## 5. Open threads / next step
-- <the single most concrete next action — this should feed NEXT_SESSION/handoff via doc-keeper>
+- <the single most concrete next action — this feeds the project's handoff/next-session doc>
 EOF
 
 echo "CREATED: $file"
