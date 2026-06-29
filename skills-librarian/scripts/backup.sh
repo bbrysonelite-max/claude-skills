@@ -43,11 +43,23 @@ guard_no_symlink_or_gitlink(){
   fi
 }
 
-secret_scan(){ # hard stop. payload-required, case-insensitive. references locations only — never a value.
+secret_scan(){ # hard stop. references locations only — never a value. Two passes:
   say "[$(ts)] Secret-scanning staged diff…"
-  local SECRET_RE hits
-  SECRET_RE='(sk_|sk-|blt_|AIza|AKIA|ghp_|xox)[A-Za-z0-9_/+-]{12,}|-----BEGIN[A-Z ]+PRIVATE KEY|(api[_-]?key|client_secret|[A-Za-z0-9]*_SECRET|[A-Za-z0-9]*_TOKEN|password)[[:space:]"]*[:=][[:space:]"]*[^[:space:]"]{6,}'
-  hits="$(git diff --cached -U0 | grep -nE '^\+' | grep -vE '^[0-9]+:\+\+\+' | grep -iE "$SECRET_RE" 2>/dev/null || true)"
+  local PREFIX_RE GENERIC_RE added added_owncode hits
+  # Pass 1 — high-signal KEY LITERALS (real API keys / PEM). Zero false positives on prose/code;
+  # applied to EVERYTHING, including the third-party .agents-backup/ mirror.
+  # leading [^A-Za-z0-9] boundary so "sk-" inside words (ta-sk-, fla-sk-cors) doesn't match; 16+ payload.
+  PREFIX_RE='(^|[^A-Za-z0-9])(sk-|sk_|blt_|AIza|AKIA|ghp_|xox)[A-Za-z0-9_/+-]{16,}|-----BEGIN[A-Z ]+PRIVATE KEY'
+  # Pass 2 — generic NAME=value heuristic (credential-shaped value: quoted or digit-bearing). Noisy on
+  # files full of *_secret/*_token IDENTIFIERS, so it SKIPS .agents-backup/ — that's third-party prompt
+  # text (the GSD pack) already ground-truthed to contain no key literals; Pass 1 still covers it.
+  GENERIC_RE='(api[_-]?key|client_secret|[A-Za-z0-9]*_secret|[A-Za-z0-9]*_token|password)[[:space:]"]*[:=][[:space:]"]*("[^"]{6,}|[A-Za-z0-9_/.+-]*[0-9][A-Za-z0-9_/.+-]*)'
+  added="$(git diff --cached -U0 | grep -nE '^\+' | grep -vE '^[0-9]+:\+\+\+' || true)"
+  added_owncode="$(git diff --cached -U0 -- . ':(exclude).agents-backup/**' | grep -nE '^\+' | grep -vE '^[0-9]+:\+\+\+' || true)"
+  hits="$(printf '%s\n' "$added" | grep -iE "$PREFIX_RE" 2>/dev/null || true)"
+  hits="$hits
+$(printf '%s\n' "$added_owncode" | grep -iE "$GENERIC_RE" 2>/dev/null || true)"
+  hits="$(printf '%s\n' "$hits" | grep -vE '^[[:space:]]*$' || true)"
   if [ -n "$hits" ]; then
     say "STOP: possible secret(s) in the staged diff. NOT committing. Locations only (values withheld):"
     printf '%s\n' "$hits" | sed -E 's/([:=]).*/\1 <redacted>/' | cut -c1-80 | head -40
@@ -88,6 +100,19 @@ cur="$(git branch --show-current)"
 if [ "$cur" != "main" ]; then
   say "REFUSING: on branch '$cur', not main. An earlier sync PR is likely still open —"
   say "merge it first ( backup.sh merge <pr> --confirm ), then re-run."; exit 9
+fi
+
+# Mirror ~/.claude/agents into the repo (dot-dir, so the skill loader + audit skip it) so
+# AGENT definitions are backed up too — they live outside ~/.claude/skills and would otherwise
+# never reach the mirror. A true mirror (deletes removed agents).
+AGENTS_SRC="${AGENTS_SRC:-$HOME/.claude/agents}"
+if [ -d "$AGENTS_SRC" ]; then
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude '.DS_Store' --exclude '__pycache__' "$AGENTS_SRC/" "$SKILLS_DIR/.agents-backup/"
+  else
+    rm -rf "$SKILLS_DIR/.agents-backup"; mkdir -p "$SKILLS_DIR/.agents-backup"; cp -R "$AGENTS_SRC/." "$SKILLS_DIR/.agents-backup/"
+  fi
+  say "[$(ts)] Mirrored $(find "$AGENTS_SRC" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ') agent file(s) → .agents-backup/"
 fi
 
 git add -A

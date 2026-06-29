@@ -43,7 +43,9 @@ Keeps the installed skill shelf clean and the index true. The **live** folder
    (the new skills live there until merge). After review: `scripts/backup.sh merge <pr#> --confirm`
    squash-merges to main, syncs local main, deletes the branch, verifies `MERGED` + `HEAD==origin`.
    Run on any skill change (new skill, edit, index regen). Already-in-sync → no-ops.
-   **Mirror repo:** `bbrysonelite-max/claude-skills` (private).
+   The backup also **mirrors `~/.claude/agents/` into `.agents-backup/`** (agent definitions live
+   outside the skills dir and would otherwise never be backed up) and tracks root docs like
+   `AGENTS-CATALOG.md`. **Mirror repo:** `bbrysonelite-max/claude-skills` (private).
 
 ## Rules
 
