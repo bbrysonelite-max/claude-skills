@@ -6,7 +6,6 @@ node_modules/
 .whitepaper.build.html
 # 3rd-party / separately tracked:
 heygen-skills
-tiger-leader-hunt
 # Symlinked-in skills (live in other repos):
 blotato-post
 cadence
