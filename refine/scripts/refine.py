@@ -119,15 +119,18 @@ def cmd_classify(a):
     for s, sig, t, h in _ore_handles(a.ore):
         rec.setdefault(h.lower(), {"source": s, "signal": sig, "text": t})
     confirmed = {u: n for u, n in counts.items() if n >= a.min_platforms}
+    # Orgs/lawyers/provider-directories have ZERO value in this product (Brent, standing
+    # rule 2026-06-29). They are DROPPED here — never a deliverable, never a choice.
+    # individuals = the ONLY deliverable. orgs.txt is kept solely as a discard log.
     orgs = [u for u in confirmed if _is_org(u, rec.get(u.lower()))]
     indiv = [u for u in confirmed if u not in orgs]
     for name, lst in [("confirmed", sorted(confirmed, key=lambda x: -confirmed[x])),
-                      ("orgs", orgs), ("individuals", indiv)]:
+                      ("orgs_dropped", orgs), ("individuals", indiv)]:
         open(os.path.join(a.out, f"{name}.txt"), "w").write("\n".join(lst) + "\n")
     print(f"swept: {len(counts)} | confirmed (>={a.min_platforms} platforms): {len(confirmed)}")
-    print(f"  -> orgs/creators: {len(orgs)}   individuals: {len(indiv)}")
-    print(f"  files in {a.out}: confirmed.txt, orgs.txt, individuals.txt")
-    print("\nNOTE: individuals = the sensitive group. Show Brent the split; let him pick.")
+    print(f"  -> individuals (THE deliverable): {len(indiv)}   orgs dropped (zero value): {len(orgs)}")
+    print(f"  files in {a.out}: confirmed.txt, individuals.txt, orgs_dropped.txt (discard log)")
+    print("\nindividuals.txt is the target set. Resolve it. Orgs are never a deliverable — do not ask.")
 
 
 def cmd_resolve(a):

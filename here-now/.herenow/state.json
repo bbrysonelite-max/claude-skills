@@ -1,0 +1,16 @@
+{
+  "publishes": {
+    "vast-larch-fpn8": {
+      "siteUrl": "https://vast-larch-fpn8.here.now/",
+      "claimToken": "2c66a3bf456c5b0f19ce4bacacdd0366770e5d9eab9a5388f8d5ee1c20902156",
+      "claimUrl": "https://here.now/claim?slug=vast-larch-fpn8&token=2c66a3bf456c5b0f19ce4bacacdd0366770e5d9eab9a5388f8d5ee1c20902156",
+      "expiresAt": "2026-07-08T17:10:39.876Z"
+    },
+    "hollow-fjord-afnd": {
+      "siteUrl": "https://hollow-fjord-afnd.here.now/"
+    },
+    "olive-ponder-pjp8": {
+      "siteUrl": "https://olive-ponder-pjp8.here.now/"
+    }
+  }
+}
