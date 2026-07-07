@@ -1,6 +1,6 @@
 ---
 name: refine
-description: Refine raw mine ore into resolved, contactable leads — the refinery half that the /mine skill defers. Takes a Datamine ore .jsonl, confirms each handle's cross-platform presence with Sherlock, splits likely-orgs from likely-individuals, then resolves the chosen group into identity + contact cards (name, profiles, verified email) with blue-healer. Use when Brent says "refine the ore", "run the refinery", "resolve these handles", "turn ore into leads", or hands over a mine run's JSONL. Sensitive: individual resolution builds PII contact cards — confirm scope first.
+description: Refine raw mine ore into resolved, contactable INDIVIDUAL leads — the refinery half that the /mine skill defers. Takes a Datamine ore .jsonl, confirms each handle's cross-platform presence with Sherlock, DROPS any orgs/lawyers/directories (zero value — never a deliverable), then resolves the individuals into identity + contact cards (name, profiles, verified email) with blue-healer. Individuals are the only target — never ask which group. Use when Brent says "refine the ore", "run the refinery", "resolve these handles", "turn ore into leads", or hands over a mine run's JSONL.
 ---
 
 # Refine — turn mine ore into contactable leads
@@ -28,18 +28,18 @@ The helper does the deterministic glue: `scripts/refine.py` (run `python3 script
    Drops empty handles (e.g. Quora question rows) and dotted/special handles (poor Sherlock targets).
 2. **Sherlock sweep** (background — slow):
    `OSINT_OUTDIR=/tmp/refine-<vertical>/sherlock osint $(cat /tmp/refine-<vertical>/usernames.txt | tr '\n' ' ') --timeout 12 --no-color`
-3. **Confirm + split**:
+3. **Confirm + drop orgs**:
    `python3 scripts/refine.py classify <ore.jsonl> /tmp/refine-<vertical>/sherlock --out /tmp/refine-<vertical>`
-   Writes `confirmed.txt` (≥2 platforms, tune with `--min-platforms`), `individuals.txt`, `orgs.txt`, and prints the breakdown. **Show Brent the split and the counts; let him pick the group.** (See compliance note below.)
-4. **Resolve** the chosen group with blue-healer:
+   Writes `confirmed.txt` (≥2 platforms, tune with `--min-platforms`) and `individuals.txt` — the target set. Orgs are auto-detected and **DROPPED** to `orgs_dropped.txt` (a discard log only). **INDIVIDUALS ARE THE ONLY DELIVERABLE.** Organizations, lawyers, and provider directories have ZERO value in this product (Brent's standing rule, 2026-06-29) — never present them, never offer them as a choice, never ask which group. Just report the individuals count and proceed.
+4. **Resolve the individuals** with blue-healer:
    `python3 scripts/refine.py resolve ~/blue-healer /tmp/refine-<vertical>/individuals.txt --out /tmp/refine-<vertical>/contact_cards.json`
    This writes a clean gitignored `app/.env`, launches the Flask app on a free port, POSTs the usernames (`recursive=true, enrich=true`), polls, and downloads `contact_cards.json` (name, location, bio, profiles, candidate emails with deliverability).
 5. **Report**: counts resolved, cards with a verified email, and where the JSON landed.
 
-## Compliance — read before resolving individuals
+## Compliance — settled: individuals ARE the target
 
-- The mine and signal-atlas draw an explicit line: **public pages only, no individual scraping, org-to-org outreach**. **blue-healer on individuals crosses that line** — it builds per-person contact cards and SMTP-probes mail servers for working emails.
-- The SSDI→Allsup model targets **individual claimants** ($500/lead, individuals NOT orgs) — so the individual set is the business target *and* the sensitive one. Both true. **Brent is the compliance authority — surface the split and ask which group; never auto-resolve individuals.**
+- **The deliverable is reachable individuals carrying the signal.** The SSDI→Allsup model targets **individual claimants** ($500/lead, individuals NOT orgs). Orgs / lawyers / provider directories are NOT a valuable deliverable — they are dropped, never offered.
+- Brent is the compliance authority and has **already decided**: resolve the individuals. Do **not** re-ask the org-vs-individual question every run — that decision is made. Keep the public-data discipline (only handles that already posted publicly), but the individual set is the whole point of the pipeline. Run the resolve.
 
 ## Secrets discipline
 

@@ -44,13 +44,14 @@
 A contact card aggregates one root's recursive runs: name, location, bio, avatar, IDs, profile
 URLs, and candidate emails (each with `deliverable|undeliverable|catch_all|unknown`).
 
-## Compliance boundary (non-negotiable to surface)
+## Deliverable (settled)
 
-signal-atlas / Datamine posture is **public pages only, no individual scraping, org-to-org
-outreach**. Resolving **individuals** with blue-healer (contact cards + SMTP email probing)
-crosses that line. The SSDI→Allsup model does target individual claimants — so it's both the
-business target and the sensitive set. Surface the org/individual split and **let Brent choose**;
-never auto-resolve individuals.
+**Individuals are the only valuable deliverable** (Brent, standing rule 2026-06-29): reachable
+individual claimants carrying the signal. Orgs / lawyers / provider directories = ZERO value —
+`classify` drops them to `orgs_dropped.txt` and they are never offered. The SSDI→Allsup model
+targets individual claimants ($500/lead). Brent (compliance authority) has already decided to
+resolve individuals — **do NOT re-ask the org-vs-individual question each run.** Keep the
+public-data discipline (handles that already posted publicly), and run the resolve.
 
 ## Output layout (convention, mirrors `/mine`'s `/tmp/mine-<vertical>`)
 
@@ -59,6 +60,7 @@ never auto-resolve individuals.
   usernames.txt          # clean, deduped
   sherlock/<user>.csv    # one per username (osint output)
   confirmed.txt          # >= min-platforms
-  orgs.txt  individuals.txt
+  individuals.txt        # THE deliverable (resolve this)
+  orgs_dropped.txt       # discard log — zero value, never resolved
   contact_cards.json     # blue-healer export for the resolved group
 ```
