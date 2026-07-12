@@ -67,6 +67,7 @@ Presenting 2–3 initial variants together (on the combined divider page) is fin
 - Know the deploy path before merging: Vercel git-integration (merge = deploy, e.g. Tigerclawvebsite-v5) vs manual CLI (`ssh cheesegrater 'zsh -l -c "cd ~/sites/<site> && vercel deploy --prod --yes"'` — needs a login shell for node).
 - Run the repo's own verification (lint, build, prohibited-copy grep) before claiming done.
 - Verify LIVE: poll the domain for a new-copy marker (`until curl -sL <url> | grep -q "<new headline>"; do sleep 15; done` as a background task), confirm metadata unchanged, keep rollback in mind (Vercel previous deployment).
+- **Verify LIVE on mobile**: browse `viewport 375x812` against the production URL — screenshot + `document.body.scrollWidth` must equal 375. Desktop-green is not done; a page with no `@media` block passed every desktop check and shipped broken to real phones.
 - Update memory: what shipped, and any new copy law he taught.
 
 ## Common Mistakes
