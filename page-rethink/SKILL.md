@@ -37,7 +37,7 @@ Skim the page reading ONLY the big type — that's what a visitor absorbs. Then 
 ### 3. Mockups (local only)
 
 - Static HTML in the session scratchpad, real tokens + Google Fonts, real assets copied beside the file.
-- Verify with browse screenshots yourself BEFORE showing him.
+- Verify with browse screenshots yourself BEFORE showing him — desktop AND `viewport 375x812` (check `document.body.scrollWidth` ≤ 375; a page with no `@media` block shipped broken to production once).
 - Open in Chrome with `open -a "Google Chrome" <file>` — bare `open` gets hijacked by cmux panes. If he can't see it, activate the exact tab:
   ```bash
   osascript -e 'tell application "Google Chrome"
@@ -80,3 +80,4 @@ Presenting 2–3 initial variants together (on the combined divider page) is fin
 | Dead links in a mockup he'll click | Wire anchors/tel/mailto even in mockups |
 | Shipping copy that outruns the product | Ground every claim in the product repo's current, non-dark state |
 | Declaring done after deploy command | Only live-domain verification with the new content counts |
+| Reviewing desktop-only | brentbryson.ai shipped with 546px of content in a 375px phone — always test mobile before AND after ship |
