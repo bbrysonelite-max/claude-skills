@@ -1532,11 +1532,16 @@ def _dependency_status(entry: SkillEntry) -> DependencyStatus:
     return DependencyStatus(entry.output, entry.dependencies, status, tuple(probes))
 
 
-def _validate_approved_existing(path: Path, name: str) -> tuple[str, ...]:
+def validate_approved_existing(path: Path, name: str) -> tuple[str, ...]:
+    """Validate an approved real directory or unrelated resolved skill symlink."""
     errors: list[str] = []
-    if path.is_symlink() or not path.is_dir():
-        return ("approved existing skill must be a real directory",)
-    text, read_error = _read_text(path / "SKILL.md")
+    try:
+        root = path.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        return (f"approved existing skill does not resolve: {error}",)
+    if not root.is_dir():
+        return ("approved existing skill must resolve to a directory",)
+    text, read_error = _read_text(root / "SKILL.md")
     if read_error:
         errors.append(read_error)
     elif text is not None:
@@ -1552,7 +1557,7 @@ def _validate_approved_existing(path: Path, name: str) -> tuple[str, ...]:
                 errors.append(
                     f"SKILL.md frontmatter name {document.name!r} does not match folder"
                 )
-    _validate_symlinks(path, errors)
+    _validate_symlinks(root, errors)
     return tuple(errors)
 
 
@@ -1588,15 +1593,24 @@ def _validate_installed(
             except (FileNotFoundError, RuntimeError) as error:
                 errors.append(f"installed skill {name} is a broken link: {error}")
                 continue
-            if target != (output_root / name).resolve(strict=False):
+            if target == (output_root / name).resolve(strict=False):
+                managed_count += 1
+                continue
+            if name not in approved:
                 errors.append(f"installed skill {name} links to an unexpected target")
                 continue
-            managed_count += 1
+            validation_errors = validate_approved_existing(path, name)
+            if validation_errors:
+                errors.extend(
+                    f"installed skill {name}: {error}" for error in validation_errors
+                )
+                continue
+            approved_count += 1
             continue
         if name not in approved:
             errors.append(f"installed skill {name} must be a managed symlink")
             continue
-        validation_errors = _validate_approved_existing(path, name)
+        validation_errors = validate_approved_existing(path, name)
         if validation_errors:
             errors.extend(
                 f"installed skill {name}: {error}" for error in validation_errors

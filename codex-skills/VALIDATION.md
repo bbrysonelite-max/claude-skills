@@ -1,7 +1,7 @@
 # Codex Skills Validation
 
 - **Observed date:** 2026-07-13
-- **Structural fingerprint:** `9c1d615e15995c12f686352ec2eb06c170300e2d8069506255385acc595d2709`
+- **Structural fingerprint:** `8232a0afe3940de304943eaadfada34d0159aa80515b3b0ca66fe2079b0c63fe`
 - **Overall:** PASS
 - **Collection:** 58 total; 6 native; 12 adapted; 40 dependency-required
 - **Protected sources:** PASS; 238 files; snapshot SHA-256 `75cb6068de4998477b8ecf7902a8ae2b98f16871406582d89c84ef944b7adccd`
