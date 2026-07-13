@@ -627,7 +627,10 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             self.assertEqual([], hits)
 
             named_resources = {
+                ("agent-reach", "references/dev.md"),
                 ("context-keeper", "scripts/new-session.sh"),
+                ("last30days", "scripts/lib/providers.py"),
+                ("last30days", "scripts/watchlist.py"),
                 ("skill-miner", "REFERENCE.md"),
                 ("the-rebuild", "REFERENCE.md"),
                 ("signal-mine", "verticals/ssdi-work-fear.md"),

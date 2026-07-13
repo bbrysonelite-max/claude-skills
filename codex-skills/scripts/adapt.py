@@ -212,6 +212,10 @@ ADAPTER_REGISTRY: Mapping[str, AdapterSpec] = MappingProxyType(_ADAPTERS)
 
 RESOURCE_ADAPTER_PATHS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
+        "agent-reach": frozenset({"references/dev.md"}),
+        "last30days": frozenset(
+            {"scripts/lib/providers.py", "scripts/watchlist.py"}
+        ),
         "signal-mine": frozenset({"verticals/ssdi-work-fear.md"}),
         "skill-miner": frozenset({"REFERENCE.md"}),
         "the-rebuild": frozenset({"REFERENCE.md"}),
@@ -1173,9 +1177,15 @@ def adapt_text(
     )
     if normalized_path == "SKILL.md":
         adapted = _append_runtime(skill_name, adapted, spec, "\n")
+    else:
+        adapted = re.sub(r"[ \t]+(?=$)", "", adapted, flags=re.MULTILINE)
     if entry is not None:
         validate_generated_markdown(skill_name, normalized_path, adapted)
     return _restore_newlines(adapted, newline)
+
+
+def _normalize_codex_description(description: str) -> str:
+    return re.sub(r"<([A-Za-z][A-Za-z0-9 _#-]*)>", r"{\1}", description)
 
 
 def adapt_description(skill_name: str, description: str, *, entry: Any = None) -> str:
@@ -1186,7 +1196,7 @@ def adapt_description(skill_name: str, description: str, *, entry: Any = None) -
         raise KeyError(f"unknown Codex adapter: {skill_name}") from None
     _validate_entry(skill_name, spec, entry)
     if spec.conversion == "native":
-        return description
+        return _normalize_codex_description(description)
 
     newline = _newline_style(description)
     normalized_description = _normalize_newlines(description)
@@ -1212,4 +1222,5 @@ def adapt_description(skill_name: str, description: str, *, entry: Any = None) -
                 "Dispatches the tiger-doc-keeper subagent to",
                 "Runs the tiger-doc-keeper workflow directly to",
             )
+    adapted = _normalize_codex_description(adapted)
     return _restore_newlines(adapted, newline)

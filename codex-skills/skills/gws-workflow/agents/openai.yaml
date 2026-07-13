@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gws Workflow"
+  short_description: "Google Workflow: Cross-service productivity workflows."
+  default_prompt: "Use $gws-workflow to handle this request using its documented workflow."

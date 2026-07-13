@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vault Hygiene"
+  short_description: "Use when performing daily vault maintenance, when indexes..."
+  default_prompt: "Use $vault-hygiene to handle this request using its documented workflow."

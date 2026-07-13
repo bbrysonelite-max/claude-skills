@@ -448,6 +448,23 @@ class BuildTests(unittest.TestCase):
         self.assertEqual("Codex Ui Skill", metadata["interface"]["display_name"])
         self.assertIn("$codex-ui-skill", metadata["interface"]["default_prompt"])
 
+    def test_build_normalizes_angle_bracket_placeholders_in_description(self):
+        self.make_skill(
+            description="Use when choosing a <sample> for <PR#> delivery."
+        )
+
+        build_collection(self.repo_root, manifest(entry()), self.output)
+
+        generated = parse_skill_document(
+            (self.output / "sample" / "SKILL.md").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            "Use when choosing a {sample} for {PR#} delivery.",
+            generated.description,
+        )
+        self.assertNotIn("<", generated.description)
+        self.assertNotIn(">", generated.description)
+
     def test_copies_resources_recursively_and_preserves_executable_bit(self):
         skill = self.make_skill()
         script = skill / "scripts" / "run.sh"

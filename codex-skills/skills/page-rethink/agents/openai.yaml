@@ -1,0 +1,4 @@
+interface:
+  display_name: "Page Rethink"
+  short_description: "Use when an existing production web page (tigerclaw.io..."
+  default_prompt: "Use $page-rethink to handle this request using its documented workflow."

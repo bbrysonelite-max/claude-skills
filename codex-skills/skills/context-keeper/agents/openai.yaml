@@ -1,0 +1,4 @@
+interface:
+  display_name: "Context Keeper"
+  short_description: "Write the append-only per-session flight recorder to the..."
+  default_prompt: "Use $context-keeper to handle this request using its documented workflow."

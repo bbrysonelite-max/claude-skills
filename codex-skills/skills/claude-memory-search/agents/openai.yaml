@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Memory Search"
+  short_description: "Use when the user asks about why code was written a certain..."
+  default_prompt: "Use $claude-memory-search to handle this request using its documented workflow."

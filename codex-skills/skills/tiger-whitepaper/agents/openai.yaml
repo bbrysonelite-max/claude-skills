@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tiger Whitepaper"
+  short_description: "Generate a branded Tiger Claw white paper as a print-ready..."
+  default_prompt: "Use $tiger-whitepaper to handle this request using its documented workflow."

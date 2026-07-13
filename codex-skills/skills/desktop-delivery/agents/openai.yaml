@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Delivery"
+  short_description: "Whenever a document is produced for Brent to READ or REVIEW..."
+  default_prompt: "Use $desktop-delivery to handle this request using its documented workflow."

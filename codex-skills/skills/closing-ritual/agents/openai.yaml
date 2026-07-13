@@ -1,0 +1,4 @@
+interface:
+  display_name: "Closing Ritual"
+  short_description: "Run the end-of-session closing ritual on ANY project so a..."
+  default_prompt: "Use $closing-ritual to handle this request using its documented workflow."

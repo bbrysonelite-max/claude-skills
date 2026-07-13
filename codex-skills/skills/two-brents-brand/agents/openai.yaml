@@ -1,0 +1,4 @@
+interface:
+  display_name: "Two Brents Brand"
+  short_description: "Brent's master brand system for the \"AI is Electricity\" /..."
+  default_prompt: "Use $two-brents-brand to handle this request using its documented workflow."

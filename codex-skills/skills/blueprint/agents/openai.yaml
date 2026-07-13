@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blueprint"
+  short_description: "Use when defining the golden lead and money-in-hand buyer..."
+  default_prompt: "Use $blueprint to handle this request using its documented workflow."

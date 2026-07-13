@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Miner"
+  short_description: "Mine Brent's past Codex session rollouts and context..."
+  default_prompt: "Use $skill-miner to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gws Shared"
+  short_description: "gws CLI: Shared patterns for authentication, global flags..."
+  default_prompt: "Use $gws-shared to handle this request using its documented workflow."

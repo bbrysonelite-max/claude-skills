@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tiger Leader Hunt"
+  short_description: "Weekly discovery of NEW network-marketing leaders, coaches..."
+  default_prompt: "Use $tiger-leader-hunt to handle this request using its documented workflow."

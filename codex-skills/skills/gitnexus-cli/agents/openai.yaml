@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitnexus Cli"
+  short_description: "Use when the user needs to run GitNexus CLI commands like..."
+  default_prompt: "Use $gitnexus-cli to handle this request using its documented workflow."

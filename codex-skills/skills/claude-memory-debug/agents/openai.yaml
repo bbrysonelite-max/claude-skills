@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Memory Debug"
+  short_description: "Use when the user is debugging a regression, investigating..."
+  default_prompt: "Use $claude-memory-debug to handle this request using its documented workflow."

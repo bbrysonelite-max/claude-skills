@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tigerclaw Daily Checks"
+  short_description: "Run Brent's Tiger Claw daily operational health checks..."
+  default_prompt: "Use $tigerclaw-daily-checks to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Truth Keeper"
+  short_description: "Keep Brent's truth zero-drift across its TWO layers \u2014 the..."
+  default_prompt: "Use $truth-keeper to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refine"
+  short_description: "Refine raw mine ore into resolved, contactable INDIVIDUAL..."
+  default_prompt: "Use $refine to handle this request using its documented workflow."

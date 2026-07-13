@@ -1,0 +1,4 @@
+interface:
+  display_name: "Here Now"
+  short_description: "Publish files and folders to the web instantly."
+  default_prompt: "Use $here-now to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Allsup Leads Ssdi"
+  short_description: "Run the monthly Allsup SSDI/SSI lead batch \u2014 the PROVEN..."
+  default_prompt: "Use $allsup-leads-ssdi to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Last30days"
+  short_description: "Research what people actually say about any topic in the..."
+  default_prompt: "Use $last30days to handle this request using its documented workflow."

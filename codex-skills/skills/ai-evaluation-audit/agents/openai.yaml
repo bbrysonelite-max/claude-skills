@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ai Evaluation Audit"
+  short_description: "Use when an implemented AI feature needs its planned..."
+  default_prompt: "Use $ai-evaluation-audit to handle this request using its documented workflow."

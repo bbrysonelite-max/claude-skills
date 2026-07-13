@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Memory Status"
+  short_description: "Use when the user wants to check what is indexed, how many..."
+  default_prompt: "Use $claude-memory-status to handle this request using its documented workflow."

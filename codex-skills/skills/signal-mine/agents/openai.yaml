@@ -1,0 +1,4 @@
+interface:
+  display_name: "Signal Mine"
+  short_description: "Run the signal-mining pipeline \u2014 find public evidence of..."
+  default_prompt: "Use $signal-mine to handle this request using its documented workflow."

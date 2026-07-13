@@ -1,0 +1,4 @@
+interface:
+  display_name: "Assumptions Audit"
+  short_description: "Use when a proposal, plan, or design needs its assumptions..."
+  default_prompt: "Use $assumptions-audit to handle this request using its documented workflow."

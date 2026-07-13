@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blind Spots Audit"
+  short_description: "Surface what Brent ISN'T asking, the assumptions in play..."
+  default_prompt: "Use $blind-spots-audit to handle this request using its documented workflow."

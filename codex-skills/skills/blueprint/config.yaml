@@ -1,0 +1,25 @@
+# Blueprint levers — tune without touching SKILL.md.
+
+# How deep the recursion may go before the safety cap stops it.
+# A branch normally ends earlier, when it becomes `grounded`.
+depth_cap: 4
+
+# Which research sources the skill may dispatch for `needs-research` answers.
+research_sources:
+  web_search: true        # general web search via research subagents
+  public_apis: true       # free/public APIs (no paid scraping in Blueprint)
+  light_scraping: true    # light page fetches only; heavy scraping is the Mine's job (stage #2)
+
+# Bar for promoting a branch to `grounded`. Low/medium/high describes how strong the
+# evidence must be. The buyer branch ALWAYS requires money-in-hand evidence regardless.
+confidence_threshold: medium
+
+# auto  = research and draft every answer, surface a final review at the end
+# confirm = present each drafted answer for operator accept/correct before it settles (default)
+confirm_mode: confirm
+
+# Default Golden Record Schema template (the diamond spec). Editable per industry.
+schema_template: templates/golden-record-schema.md
+
+# Where the two output artifacts are written. Absolute path to the repo root.
+output_root: /Users/brentbryson/Desktop/the-refinery

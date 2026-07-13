@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitnexus Debugging"
+  short_description: "Use when the user is debugging a bug, tracing an error, or..."
+  default_prompt: "Use $gitnexus-debugging to handle this request using its documented workflow."

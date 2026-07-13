@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Reach"
+  short_description: "MUST USE when user wants to research/search/look up/find..."
+  default_prompt: "Use $agent-reach to handle this request using its documented workflow."

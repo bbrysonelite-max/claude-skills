@@ -1,0 +1,85 @@
+# tiger-leader-hunt targeting — edit this weekly to sharpen the hunt.
+# Lines starting with # are comments. Sections are [bracketed].
+
+[platforms]
+tiktok
+instagram
+youtube
+x
+
+[hashtags]
+networkmarketing
+networkmarketingpro
+mlm
+directsales
+directselling
+socialselling
+networkmarketingtraining
+networkmarketingtips
+duplication
+teambuilding
+downline
+residualincome
+recruiting
+homebusiness
+entrepreneurmindset
+
+[ranking_phrases]
+network marketing trainer
+network marketing coach
+network marketing author
+best-selling author
+top earner
+built a team of
+my downline
+my students
+keynote speaker
+
+[hunt_brands]
+NuSkin
+Rodan + Fields
+Monat
+Arbonne
+doTERRA
+Young Living
+Modere
+LifeVantage
+Beautycounter
+Seint
+Farmasi
+Amway
+Herbalife
+Isagenix
+Plexus
+Optavia
+It Works
+Forever Living
+Melaleuca
+Mary Kay
+
+[authority_anchors]
+Eric Worre
+Ray Higdon
+Rob Sperry
+Todd Falcone
+Frazer Brookes
+Darin Kidd
+Tom Big Al Schreiter
+Sarah Robbins
+Tanya Aliza
+Matt Morris
+Richard Bliss Brooke
+John and Nadya Melton
+
+[subreddits]
+networkmarketing
+mlm
+sales
+Entrepreneur
+socialselling
+smallbusiness
+
+[exclude]
+# Software/tooling competitors and noise. Add your OWN org's handles/names here over time.
+PushPlayOS
+antiMLM
