@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,37 @@ HELPER_PATH = (
 
 
 class SkillMinerCodexDigestTests(unittest.TestCase):
+    def _write_rollout(self, path: Path, marker: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        event = {
+            "timestamp": "2026-07-12T10:00:00Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": marker}],
+            },
+        }
+        path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+    def _run_helper(
+        self, root: Path, output: Path, *extra_arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(HELPER_PATH),
+                "--dir",
+                str(root),
+                "--out",
+                str(output),
+                *extra_arguments,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
     def test_nested_rollouts_and_context_snapshots_produce_safe_nonempty_batches(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "sessions"
@@ -127,6 +159,72 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             batches = sorted(output.parent.glob("batch*.txt"))
             self.assertEqual(2, len(batches))
             self.assertTrue(all(path.stat().st_size > 20 for path in batches))
+
+    def test_limit_selects_newest_rollout_by_mtime(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "sessions"
+            newer = root / "a-new.jsonl"
+            older = root / "z-old.jsonl"
+            self._write_rollout(newer, "NEWEST_ROLLOUT_MARKER")
+            self._write_rollout(older, "OLDER_ROLLOUT_MARKER")
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+            output = Path(temporary_directory) / "digest.txt"
+
+            completed = self._run_helper(root, output, "--limit", "1")
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("sessions: 1", completed.stdout)
+            self.assertIn("NEWEST_ROLLOUT_MARKER", digest)
+            self.assertNotIn("OLDER_ROLLOUT_MARKER", digest)
+
+    def test_limit_uses_relative_path_to_break_mtime_ties(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "sessions"
+            first = root / "a-tied.jsonl"
+            second = root / "z-tied.jsonl"
+            self._write_rollout(first, "FIRST_PATH_MARKER")
+            self._write_rollout(second, "SECOND_PATH_MARKER")
+            tied_time = 3_000_000_000
+            os.utime(first, ns=(tied_time, tied_time))
+            os.utime(second, ns=(tied_time, tied_time))
+            output = Path(temporary_directory) / "digest.txt"
+
+            self._run_helper(root, output, "--limit", "1")
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("FIRST_PATH_MARKER", digest)
+            self.assertNotIn("SECOND_PATH_MARKER", digest)
+
+    def test_rerun_removes_only_stale_owned_batch_files(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "sessions"
+            for index in range(1, 4):
+                rollout = root / f"session-{index}.jsonl"
+                self._write_rollout(rollout, f"SESSION_{index}_MARKER")
+                timestamp = index * 1_000_000_000
+                os.utime(rollout, ns=(timestamp, timestamp))
+            output = Path(temporary_directory) / "digest.txt"
+            unrelated = output.parent / "batch-not-owned.txt"
+            unrelated.write_text("keep me\n", encoding="utf-8")
+            self._run_helper(root, output, "--batches", "3")
+            self.assertTrue(all(
+                (output.parent / f"batch{index}.txt").is_file()
+                for index in range(1, 4)
+            ))
+
+            self._run_helper(
+                root, output, "--limit", "1", "--batches", "2"
+            )
+
+            self.assertTrue((output.parent / "batch1.txt").is_file())
+            self.assertFalse((output.parent / "batch2.txt").exists())
+            self.assertFalse((output.parent / "batch3.txt").exists())
+            self.assertEqual("keep me\n", unrelated.read_text(encoding="utf-8"))
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("SESSION_3_MARKER", digest)
+            self.assertNotIn("SESSION_1_MARKER", digest)
+            self.assertNotIn("SESSION_2_MARKER", digest)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ _NOISE_PREFIXES = (
     "<permissions instructions>",
     "# AGENTS.md instructions",
 )
+_OWNED_BATCH_NAME = re.compile(r"batch[1-9][0-9]*\.txt")
 
 
 @dataclass(frozen=True)
@@ -156,9 +157,19 @@ def _read_context_snapshot(root: Path, path: Path) -> SessionRecord | None:
 
 
 def collect_sessions(root: Path, limit: int = 0) -> list[SessionRecord]:
-    paths = sorted((*root.rglob("*.jsonl"), *root.rglob("*.md")))
+    rollouts = sorted(
+        root.rglob("*.jsonl"),
+        key=lambda path: (
+            -path.stat().st_mtime_ns,
+            path.relative_to(root).as_posix(),
+        ),
+    )
     if limit > 0:
-        paths = paths[-limit:]
+        rollouts = rollouts[:limit]
+    paths = sorted(
+        (*rollouts, *root.rglob("*.md")),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
     sessions: list[SessionRecord] = []
     for path in paths:
         record = (
@@ -187,6 +198,11 @@ def write_digest(
     sessions: list[SessionRecord], output: Path, batches: int = 0
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
+    for path in output.parent.glob("batch*.txt"):
+        if _OWNED_BATCH_NAME.fullmatch(path.name) and (
+            path.is_file() or path.is_symlink()
+        ):
+            path.unlink()
     header = f"# skill-miner Codex digest - {len(sessions)} sessions"
     if sessions:
         header += f" ({sessions[0].date} .. {sessions[-1].date})"
