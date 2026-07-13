@@ -1,7 +1,7 @@
 # Codex Skills Validation
 
 - **Observed date:** 2026-07-13
-- **Structural fingerprint:** `8232a0afe3940de304943eaadfada34d0159aa80515b3b0ca66fe2079b0c63fe`
+- **Structural fingerprint:** `9cd14948661c9f20762483929540e903de1428e1179052dc109b2a1b7a02ec45`
 - **Overall:** PASS
 - **Collection:** 58 total; 6 native; 12 adapted; 40 dependency-required
 - **Protected sources:** PASS; 238 files; snapshot SHA-256 `75cb6068de4998477b8ecf7902a8ae2b98f16871406582d89c84ef944b7adccd`
@@ -10,7 +10,7 @@
 - **Official validator:** 58/58 passed
 - **Regression suites:** **PASS**
 - **Injected defect checks:** **PASS**; 9/9 detected
-- **Installability:** generated names and resources validated; personal installation not inspected
+- **Installability:** **PASS**; 57 managed links; 0 approved existing directories; 1 excluded (`last30days`); 58/58 generated names accounted for
 
 ## Schema, Metadata, Runtime, and Resources
 
@@ -26,8 +26,8 @@ Fallback evidence: online dependency resolution failed, then the cached `UV_OFFL
 
 | Interpreter | Observed tests | Result |
 |---|---:|---|
-| Python 3.14.5 | 219/219 | PASS |
-| Python 3.11.15 | 219/219 | PASS |
+| Python 3.14.5 | 289/289 | PASS |
+| Python 3.11.15 | 289/289 | PASS |
 
 | Injected defect category | Exact injected defect | Detection | Result |
 |---|---|---|---|
@@ -103,6 +103,18 @@ Statuses are non-secret observations only. Connector-dependent does not claim th
 | `truth-keeper` | `local Truth directory` (connector-dependent)<br>`project repositories` (not-probed) | partial |
 | `vault-hygiene` | `local Obsidian vault repository` (connector-dependent) | connector-dependent |
 | `whitelabel-radar` | `last30days and tiger-leader-hunt skills` (not-probed)<br>`enrichment and publishing credentials` (credential-dependent) | partial |
+
+## Personal Installation
+
+- **Observed target/source:** `/Users/brentbryson/.codex/skills` from `/Users/brentbryson/.config/superpowers/worktrees/claude-skills/parallel-codex-skills/codex-skills/skills` on 2026-07-13.
+- **Preflight:** `python3 codex-skills/scripts/validate.py --source-only --json` matched 238 protected source hashes; `python3 codex-skills/scripts/validate.py --check` validated 58 skills with 0 errors and 0 warnings. All 18 existing personal trees matched their captured path types and content digests.
+- **Dry run:** `python3 codex-skills/scripts/install.py --dry-run --exclude last30days --json` reported 57 planned creates, 0 applied creates/updates, 1 exclusion, and 0 collisions/errors/warnings.
+- **First install:** `python3 codex-skills/scripts/install.py --exclude last30days --json` reported 57 created, 0 updated/unchanged/skipped, 1 exclusion, and 0 collisions/errors/warnings after permission approval. The earlier sandbox-denied mutation attempt reported 0 created and left all 18 original trees unchanged with no debris.
+- **Idempotence:** the same installer command reported 57 unchanged, 0 created/updated/skipped, 1 exclusion, and 0 collisions/errors/warnings.
+- **Installed validation:** `python3 codex-skills/scripts/validate.py --installed /Users/brentbryson/.codex/skills --exclude last30days --json` passed with 57 managed links, 0 approved existing directories, 1 exclusion, 0 errors, and 0 warnings. Official validation passed 58/58 generated skills; both regression interpreters passed 289/289 tests.
+- **Managed links:** all 57 are absolute direct links to tracked generated skill directories in the exact source worktree; every target resolves and contains `SKILL.md`.
+- **Explicit exception:** `last30days` remains a real personal directory and was not inspected, validated, moved, replaced, edited, or counted as managed by the exclusion workflow. Its tree digest remained `e294507383b773c2372033750130fd1e747e8f75110293da26e328208c0259e5`; its `SKILL.md` SHA-256 `bee461995acc5faf1a9608d2f8c6ea82017995dc7b2bcf525f845331392cd5cf` matches the repository upstream source and intentionally differs from the generated Codex adaptation.
+- **Preservation and cleanup:** all 17 unrelated pre-existing personal skill trees and excluded `last30days` retained their captured types and content digests. No stage, ready, backup, recovery, or `codex-install` debris remained.
 
 ## Limitations
 

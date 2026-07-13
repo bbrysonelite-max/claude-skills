@@ -46,6 +46,7 @@ class InstallResult:
     planned_updated: tuple[str, ...] = ()
     unchanged: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
     collisions: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
@@ -63,6 +64,7 @@ class InstallResult:
             "planned_updated": list(self.planned_updated),
             "unchanged": list(self.unchanged),
             "skipped": list(self.skipped),
+            "excluded": list(self.excluded),
             "collisions": list(self.collisions),
             "errors": list(self.errors),
             "warnings": list(self.warnings),
@@ -122,6 +124,7 @@ class _Plan:
     updated: tuple[str, ...]
     unchanged: tuple[str, ...]
     skipped: tuple[str, ...]
+    excluded: tuple[str, ...]
     collisions: tuple[str, ...]
     errors: tuple[str, ...]
     previous_links: tuple[tuple[str, str], ...]
@@ -138,6 +141,7 @@ class _Plan:
             planned_updated=self.updated,
             unchanged=self.unchanged if observations_are_current else (),
             skipped=self.skipped if observations_are_current else (),
+            excluded=self.excluded,
             collisions=self.collisions,
             errors=result_errors,
         )
@@ -588,11 +592,13 @@ def _plan_install(
     source: _Source,
     destination: Path,
     skip_existing: tuple[str, ...],
+    exclude: tuple[str, ...],
 ) -> _Plan:
     created: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
     skipped: list[str] = []
+    excluded: list[str] = []
     collisions: list[str] = []
     errors: list[str] = []
     previous_links: list[tuple[str, str]] = []
@@ -616,7 +622,35 @@ def _plan_install(
     if invalid_skips:
         errors.append("unknown skip-existing skill(s): " + ", ".join(invalid_skips))
 
+    requested_exclusions = set(exclude)
+    invalid_exclusions = sorted(
+        name
+        for name in requested_exclusions
+        if SAFE_SKILL_NAME.fullmatch(name) is None
+    )
+    unknown_exclusions = sorted(
+        name
+        for name in requested_exclusions
+        if SAFE_SKILL_NAME.fullmatch(name) is not None and name not in source.names
+    )
+    conflicting = sorted(requested_skips & requested_exclusions)
+    if invalid_exclusions:
+        errors.append(
+            "invalid excluded skill name(s): " + ", ".join(invalid_exclusions)
+        )
+    if unknown_exclusions:
+        errors.append("unknown excluded skill(s): " + ", ".join(unknown_exclusions))
+    if conflicting:
+        errors.append(
+            "skill(s) cannot be both skip-existing and excluded: "
+            + ", ".join(conflicting)
+        )
+    valid_exclusions = requested_exclusions.intersection(source.names)
+
     for name in source.names:
+        if name in valid_exclusions:
+            excluded.append(name)
+            continue
         path = destination / name
         exists = _lexists(path)
         if name in requested_skips:
@@ -689,6 +723,7 @@ def _plan_install(
         tuple(updated),
         tuple(unchanged),
         tuple(skipped),
+        tuple(excluded),
         tuple(collisions),
         tuple(errors),
         tuple(previous_links),
@@ -1746,6 +1781,7 @@ def install(
     destination: Path | None = None,
     *,
     skip_existing: tuple[str, ...] = (),
+    exclude: tuple[str, ...] = (),
     dry_run: bool = False,
 ) -> InstallResult:
     """Plan and transactionally install a validated generated skill collection."""
@@ -1758,7 +1794,12 @@ def install(
     try:
         source = _source_preflight(Path(collection))
         target = _destination_preflight(Path(destination), source)
-        plan = _plan_install(source, target, tuple(skip_existing))
+        plan = _plan_install(
+            source,
+            target,
+            tuple(skip_existing),
+            tuple(exclude),
+        )
     except (OSError, UnicodeError, ValueError, RuntimeError) as error:
         return InstallResult(errors=(str(error),))
 
@@ -1775,6 +1816,7 @@ def install(
         return InstallResult(
             planned_created=plan.created,
             planned_updated=plan.updated,
+            excluded=plan.excluded,
             collisions=plan.collisions,
             errors=outcome.errors,
             warnings=outcome.warnings,
@@ -1786,6 +1828,7 @@ def install(
         planned_updated=plan.updated,
         unchanged=plan.unchanged,
         skipped=plan.skipped,
+        excluded=plan.excluded,
         collisions=plan.collisions,
         warnings=outcome.warnings,
     )
@@ -1796,6 +1839,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", type=Path)
     parser.add_argument("--dest", type=Path)
     parser.add_argument("--skip-existing", action="append", default=[])
+    parser.add_argument("--exclude", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -1803,6 +1847,7 @@ def main(argv: list[str] | None = None) -> int:
         args.source,
         args.dest,
         skip_existing=tuple(args.skip_existing),
+        exclude=tuple(args.exclude),
         dry_run=args.dry_run,
     )
     if args.json:
@@ -1810,12 +1855,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(
             f"Applied: created {len(result.created)}, updated {len(result.updated)}; "
-            f"unchanged {len(result.unchanged)}, skipped {len(result.skipped)}."
+            f"unchanged {len(result.unchanged)}, skipped {len(result.skipped)}, "
+            f"excluded {len(result.excluded)}."
         )
         print(
             f"Planned: create {len(result.planned_created)}, "
             f"update {len(result.planned_updated)}."
         )
+        if result.excluded:
+            print("Excluded: " + ", ".join(result.excluded))
         for name in result.collisions:
             print(f"Collision: {name}", file=sys.stderr)
         for error in result.errors:

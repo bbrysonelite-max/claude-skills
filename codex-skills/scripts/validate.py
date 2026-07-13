@@ -233,6 +233,7 @@ class CollectionReport:
     installed_count: int | None
     source_only: bool
     approved_existing_count: int | None = None
+    excluded: tuple[str, ...] = ()
     structural_fingerprint: str = ""
     regression_results: tuple[RegressionValidation, ...] = ()
     injected_defect_results: tuple[InjectedDefectValidation, ...] = ()
@@ -275,6 +276,10 @@ class CollectionReport:
     @property
     def official_passes(self) -> int:
         return sum(result.passed for result in self.official_results)
+
+    @property
+    def excluded_count(self) -> int:
+        return len(self.excluded)
 
     @property
     def ok(self) -> bool:
@@ -356,6 +361,8 @@ class CollectionReport:
             "installed_count": self.installed_count,
             "managed_installed_count": self.installed_count,
             "approved_existing_count": self.approved_existing_count,
+            "excluded": list(self.excluded),
+            "excluded_count": self.excluded_count,
             "structural_fingerprint": self.structural_fingerprint,
             "errors": list(self.errors),
             "warnings": list(self.warnings),
@@ -1566,13 +1573,15 @@ def _validate_installed(
     output_root: Path,
     expected_names: set[str],
     approved_existing: tuple[str, ...],
+    exclude: tuple[str, ...],
     errors: list[str],
-) -> tuple[int, int]:
+) -> tuple[int, int, tuple[str, ...]]:
     installed_root = Path(installed).expanduser()
     if installed_root.is_symlink() or not installed_root.is_dir():
         errors.append(f"installed skill root does not exist: {installed_root}")
-        return 0, 0
+        return 0, 0, ()
     approved = set(approved_existing)
+    requested_exclusions = set(exclude)
     invalid_approvals = sorted(
         name
         for name in approved
@@ -1583,9 +1592,28 @@ def _validate_installed(
             "approved existing skill names are invalid or unmanaged: "
             + ", ".join(invalid_approvals)
         )
+    invalid_exclusions = sorted(
+        name
+        for name in requested_exclusions
+        if SAFE_SKILL_NAME.fullmatch(name) is None or name not in expected_names
+    )
+    if invalid_exclusions:
+        errors.append(
+            "excluded skill names are invalid or unmanaged: "
+            + ", ".join(invalid_exclusions)
+        )
+    conflicting = sorted(approved & requested_exclusions)
+    if conflicting:
+        errors.append(
+            "skill names cannot be both approved and excluded: "
+            + ", ".join(conflicting)
+        )
+    excluded = tuple(sorted(requested_exclusions.intersection(expected_names)))
     managed_count = 0
     approved_count = 0
     for name in sorted(expected_names):
+        if name in excluded:
+            continue
         path = installed_root / name
         if path.is_symlink():
             try:
@@ -1617,7 +1645,7 @@ def _validate_installed(
             )
             continue
         approved_count += 1
-    return managed_count, approved_count
+    return managed_count, approved_count, excluded
 
 
 def validate_collection(
@@ -1625,6 +1653,7 @@ def validate_collection(
     installed: Path | None = None,
     *,
     approved_existing: tuple[str, ...] = (),
+    exclude: tuple[str, ...] = (),
     source_only: bool = False,
     collect_evidence: bool = False,
     structural_only: bool = False,
@@ -1633,6 +1662,8 @@ def validate_collection(
     root = Path(repo_root).expanduser().resolve(strict=False)
     errors: list[str] = []
     warnings: list[str] = []
+    if exclude and installed is None:
+        errors.append("excluded skill names require an installed skill root")
     if structural_only and collect_evidence:
         errors.append(
             "full evidence was requested but suppressed by structural-only validation"
@@ -1766,12 +1797,14 @@ def validate_collection(
 
     installed_count: int | None = None
     approved_existing_count: int | None = None
+    excluded: tuple[str, ...] = ()
     if installed is not None:
-        installed_count, approved_existing_count = _validate_installed(
+        installed_count, approved_existing_count, excluded = _validate_installed(
             Path(installed),
             output_root,
             expected_names,
             approved_existing,
+            exclude,
             errors,
         )
 
@@ -1827,6 +1860,7 @@ def validate_collection(
         installed_count=installed_count,
         source_only=False,
         approved_existing_count=approved_existing_count,
+        excluded=excluded,
         structural_fingerprint=_structural_fingerprint(root),
         regression_results=regression_results,
         injected_defect_results=injected_defect_results,
@@ -1878,6 +1912,11 @@ def render_report(report: CollectionReport) -> str:
         result.passed for result in report.injected_defect_results
     )
     injection_total = len(report.injected_defect_results)
+    excluded_summary = f"{report.excluded_count} excluded"
+    if report.excluded:
+        excluded_summary += " (" + ", ".join(
+            f"`{name}`" for name in report.excluded
+        ) + ")"
     lines = [
         "# Codex Skills Validation",
         "",
@@ -1907,8 +1946,9 @@ def render_report(report: CollectionReport) -> str:
         (
             f"- **Installability:** {report.installed_count} managed links; "
             f"{report.approved_existing_count or 0} approved existing directories; "
-            f"{(report.installed_count or 0) + (report.approved_existing_count or 0)}/"
-            f"{report.skill_count} generated names satisfied"
+            f"{excluded_summary}; "
+            f"{(report.installed_count or 0) + (report.approved_existing_count or 0) + report.excluded_count}/"
+            f"{report.skill_count} generated names accounted for"
             if report.installed_count is not None
             else "- **Installability:** generated names and resources validated; personal "
             "installation not inspected"
@@ -2069,6 +2109,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=default_repo)
     parser.add_argument("--installed", type=Path)
     parser.add_argument("--approved-existing", action="append", default=[])
+    parser.add_argument("--exclude", action="append", default=[])
     parser.add_argument("--source-only", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--check", action="store_true")
@@ -2080,11 +2121,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--test-child cannot be combined with --source-only or --check")
     if args.approved_existing and args.installed is None:
         parser.error("--approved-existing requires --installed")
+    if args.exclude and args.installed is None:
+        parser.error("--exclude requires --installed")
 
     report = validate_collection(
         args.repo,
         installed=args.installed,
         approved_existing=tuple(args.approved_existing),
+        exclude=tuple(args.exclude),
         source_only=args.source_only,
         collect_evidence=not args.source_only and not args.check and not args.test_child,
         structural_only=args.check,

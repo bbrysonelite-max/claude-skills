@@ -1,4 +1,5 @@
 import io
+import inspect
 import json
 import os
 import shutil
@@ -84,6 +85,9 @@ class SkillValidationTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_collection_validation_accepts_explicit_exclusions(self):
+        self.assertIn("exclude", inspect.signature(validate_collection).parameters)
+
     def test_validation_records_are_structured_and_immutable(self):
         syntax = SyntaxValidation("python", "python3", ("sample.py",), ())
         official = OfficialValidation("sample", True, "validated")
@@ -117,6 +121,8 @@ class SkillValidationTests(unittest.TestCase):
         self.assertIsInstance(result.errors, tuple)
         self.assertEqual(1, report.skill_count)
         self.assertTrue(report.ok)
+        self.assertIn("excluded", report.to_dict())
+        self.assertEqual([], report.to_dict()["excluded"])
 
     def test_validate_skill_accepts_minimal_valid_skill(self):
         skill = make_skill(self.root)
@@ -710,6 +716,41 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual(1, report.approved_existing_count)
         self.assertFalse(any("installed" in error for error in report.errors))
 
+    def test_installed_validation_excludes_without_inspecting_existing_entry(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+        existing = installed / "last30days"
+        existing.write_bytes(b"not a valid skill and intentionally excluded\n")
+
+        report = self.validate_fixture(
+            installed=installed,
+            exclude=("last30days",),
+        )
+
+        self.assertEqual(0, report.installed_count)
+        self.assertEqual(0, report.approved_existing_count)
+        self.assertEqual(1, report.excluded_count)
+        self.assertEqual(("last30days",), report.excluded)
+        self.assertFalse(any("installed skill last30days" in error for error in report.errors))
+
+    def test_installed_validation_rejects_unknown_unsafe_or_conflicting_exclusion(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+
+        for name in ("unknown-skill", "../unsafe"):
+            with self.subTest(name=name):
+                report = self.validate_fixture(installed=installed, exclude=(name,))
+                self.assertTrue(any("excluded skill" in error for error in report.errors))
+
+        conflict = self.validate_fixture(
+            installed=installed,
+            approved_existing=("last30days",),
+            exclude=("last30days",),
+        )
+        self.assertTrue(any("both approved and excluded" in error for error in conflict.errors))
+
     def test_installed_validation_rejects_invalid_or_unapproved_existing_skill(self):
         self.make_source_and_output("last30days")
         installed = self.repo / "installed"
@@ -933,6 +974,18 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertNotIn("Regression suites: **PASS**", text)
         self.assertNotIn("Injected defect checks: **PASS**", text)
 
+    def test_report_names_explicitly_excluded_installed_skills(self):
+        report = replace(
+            CollectionReport.empty(self.repo),
+            installed_count=57,
+            approved_existing_count=0,
+            excluded=("last30days",),
+        )
+
+        text = render_report(report)
+
+        self.assertIn("1 excluded (`last30days`)", text)
+
 
 class CliTests(unittest.TestCase):
     def test_default_cli_explicitly_requests_observed_evidence(self):
@@ -953,6 +1006,7 @@ class CliTests(unittest.TestCase):
             repo,
             installed=None,
             approved_existing=(),
+            exclude=(),
             source_only=False,
             collect_evidence=True,
             structural_only=False,
@@ -988,6 +1042,7 @@ class CliTests(unittest.TestCase):
                 repo,
                 installed=None,
                 approved_existing=(),
+                exclude=(),
                 source_only=False,
                 collect_evidence=False,
                 structural_only=False,
@@ -1023,6 +1078,47 @@ class CliTests(unittest.TestCase):
             repo,
             installed=installed,
             approved_existing=("last30days", "existing-two"),
+            exclude=(),
+            source_only=False,
+            collect_evidence=False,
+            structural_only=False,
+        )
+
+    def test_cli_forwards_repeatable_excluded_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            installed = repo / "installed"
+            report = CollectionReport.empty(repo)
+            stderr = io.StringIO()
+            with (
+                patch("scripts.validate.validate_collection", return_value=report) as validator,
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(stderr),
+            ):
+                try:
+                    exit_code = main(
+                        [
+                            "--repo",
+                            str(repo),
+                            "--installed",
+                            str(installed),
+                            "--exclude",
+                            "last30days",
+                            "--exclude",
+                            "existing-two",
+                            "--test-child",
+                        ]
+                    )
+                except SystemExit as error:
+                    exit_code = error.code
+
+            self.assertEqual(0, exit_code, stderr.getvalue())
+
+        validator.assert_called_once_with(
+            repo,
+            installed=installed,
+            approved_existing=(),
+            exclude=("last30days", "existing-two"),
             source_only=False,
             collect_evidence=False,
             structural_only=False,
@@ -1113,6 +1209,7 @@ class CliTests(unittest.TestCase):
             repo,
             installed=None,
             approved_existing=(),
+            exclude=(),
             source_only=False,
             collect_evidence=False,
             structural_only=True,

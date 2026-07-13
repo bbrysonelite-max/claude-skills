@@ -1,4 +1,5 @@
 import io
+import inspect
 import json
 import os
 import shutil
@@ -55,6 +56,9 @@ class InstallTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_install_accepts_explicit_exclusions(self):
+        self.assertIn("exclude", inspect.signature(install).parameters)
+
     def test_result_is_structured_immutable_and_serializable(self):
         result = InstallResult(
             created=("sample",),
@@ -73,6 +77,7 @@ class InstallTests(unittest.TestCase):
                 "planned_updated": [],
                 "unchanged": [],
                 "skipped": [],
+                "excluded": [],
                 "collisions": [],
                 "errors": ["error"],
                 "warnings": [],
@@ -518,6 +523,56 @@ class InstallTests(unittest.TestCase):
                 result = install(COLLECTION, destination, skip_existing=(name,))
                 self.assertTrue(result.errors)
                 self.assertFalse(destination.exists())
+
+    def test_excluded_skill_is_not_inspected_touched_or_managed(self):
+        self.destination.mkdir(parents=True)
+        existing = self.destination / "last30days"
+        existing.write_bytes(b"invalid but explicitly excluded\n")
+        before = existing.lstat()
+
+        dry = install(
+            COLLECTION,
+            self.destination,
+            exclude=("last30days",),
+            dry_run=True,
+        )
+
+        self.assertTrue(dry.ok, dry.errors)
+        self.assertEqual(("last30days",), dry.excluded)
+        self.assertEqual(57, len(dry.planned_created))
+        self.assertEqual((), dry.created)
+        self.assertEqual(before.st_ino, existing.lstat().st_ino)
+        self.assertEqual(b"invalid but explicitly excluded\n", existing.read_bytes())
+
+        first = install(COLLECTION, self.destination, exclude=("last30days",))
+        second = install(COLLECTION, self.destination, exclude=("last30days",))
+
+        self.assertEqual(57, len(first.created))
+        self.assertEqual(("last30days",), first.excluded)
+        self.assertEqual(57, len(second.unchanged))
+        self.assertEqual(("last30days",), second.excluded)
+        self.assertEqual(before.st_ino, existing.lstat().st_ino)
+        self.assertEqual(b"invalid but explicitly excluded\n", existing.read_bytes())
+
+    def test_unknown_unsafe_or_conflicting_exclusion_is_rejected_without_mutation(self):
+        for name in ("unknown-skill", "../unsafe"):
+            with self.subTest(name=name):
+                destination = self.root / f"exclude-{Path(name).name}"
+                result = install(COLLECTION, destination, exclude=(name,))
+                self.assertTrue(result.errors)
+                self.assertFalse(destination.exists())
+
+        existing = make_external_skill(self.destination, "last30days")
+        before = (existing / "SKILL.md").read_bytes()
+        result = install(
+            COLLECTION,
+            self.destination,
+            skip_existing=("last30days",),
+            exclude=("last30days",),
+        )
+        self.assertTrue(result.errors)
+        self.assertFalse(any(path.is_symlink() for path in self.destination.iterdir()))
+        self.assertEqual(before, (existing / "SKILL.md").read_bytes())
 
     def test_valid_real_existing_skill_can_be_explicitly_skipped(self):
         existing = make_external_skill(self.destination, "last30days")
@@ -1807,6 +1862,56 @@ class CliTests(unittest.TestCase):
             payload = json.loads(stdout.getvalue())
             self.assertEqual(0, exit_code)
             self.assertEqual(["last30days"], payload["skipped"])
+
+    def test_cli_supports_repeatable_exclusions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "skills"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                try:
+                    exit_code = main(
+                        [
+                            "--source",
+                            str(COLLECTION),
+                            "--dest",
+                            str(destination),
+                            "--exclude",
+                            "last30days",
+                            "--exclude",
+                            "agent-reach",
+                            "--dry-run",
+                            "--json",
+                        ]
+                    )
+                except SystemExit as error:
+                    exit_code = error.code
+
+            self.assertEqual(0, exit_code, stderr.getvalue())
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(["agent-reach", "last30days"], payload["excluded"])
+            self.assertEqual(56, len(payload["planned_created"]))
+            self.assertFalse(destination.exists())
+
+    def test_text_output_names_excluded_skills(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "skills"
+            stdout = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                exit_code = main(
+                    [
+                        "--source",
+                        str(COLLECTION),
+                        "--dest",
+                        str(destination),
+                        "--exclude",
+                        "last30days",
+                        "--dry-run",
+                    ]
+                )
+
+            self.assertEqual(0, exit_code)
+            self.assertIn("Excluded: last30days", stdout.getvalue())
 
 
 if __name__ == "__main__":
