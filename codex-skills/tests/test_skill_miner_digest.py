@@ -574,6 +574,76 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             self.assertNotIn("token: >", digest)
             self.assertNotIn("secret: |", digest)
 
+    def test_redacts_yaml_blocks_with_indent_and_chomping_in_either_order(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            block_text = (
+                "MODIFIER_BLOCK_MARKER\n"
+                "section:\n"
+                "  password: |2\n"
+                "    FAKE_PIPE_TWO_BODY\n"
+                "\n"
+                "    FAKE_PIPE_TWO_AFTER_BLANK\n"
+                "  token: |2-\n"
+                "    FAKE_PIPE_TWO_STRIP_BODY\n"
+                "  secret: |-2\n"
+                "    FAKE_PIPE_STRIP_TWO_BODY\n"
+                "  api-key: >2\n"
+                "    FAKE_FOLD_TWO_BODY\n"
+                '  "api.token": >2+\n'
+                "    FAKE_FOLD_TWO_KEEP_BODY\n"
+                "\n"
+                "    FAKE_FOLD_TWO_KEEP_AFTER_BLANK\n"
+                "  'client-secret': >+2\n"
+                "    FAKE_FOLD_KEEP_TWO_BODY\n"
+                "  api_key: |\n"
+                "    FAKE_BASIC_PIPE_BODY\n"
+                "  auth: >\n"
+                "    FAKE_BASIC_FOLD_BODY\n"
+                "  SAFE_NESTED_FIELD: SAFE_NESTED_VALUE\n"
+                "SAFE_MODIFIER_TRAILING_MARKER\n"
+            )
+            self._write_rollout(root / "block-modifiers.jsonl", block_text)
+            output = temporary / "scratch" / "digest.txt"
+
+            self._run_helper(root, output)
+
+            digest = output.read_text(encoding="utf-8")
+            for preserved in (
+                "MODIFIER_BLOCK_MARKER",
+                "section:",
+                "SAFE_NESTED_FIELD: SAFE_NESTED_VALUE",
+                "SAFE_MODIFIER_TRAILING_MARKER",
+            ):
+                self.assertIn(preserved, digest)
+            for redacted_key in (
+                "password: <redacted>",
+                "token: <redacted>",
+                "secret: <redacted>",
+                "api-key: <redacted>",
+                '"api.token": <redacted>',
+                "'client-secret': <redacted>",
+                "api_key: <redacted>",
+                "auth: <redacted>",
+            ):
+                self.assertIn(redacted_key, digest)
+            for leaked_content in (
+                "FAKE_PIPE_TWO_BODY",
+                "FAKE_PIPE_TWO_AFTER_BLANK",
+                "FAKE_PIPE_TWO_STRIP_BODY",
+                "FAKE_PIPE_STRIP_TWO_BODY",
+                "FAKE_FOLD_TWO_BODY",
+                "FAKE_FOLD_TWO_KEEP_BODY",
+                "FAKE_FOLD_TWO_KEEP_AFTER_BLANK",
+                "FAKE_FOLD_KEEP_TWO_BODY",
+                "FAKE_BASIC_PIPE_BODY",
+                "FAKE_BASIC_FOLD_BODY",
+            ):
+                self.assertNotIn(leaked_content, digest)
+            for indicator in ("|2", "|2-", "|-2", ">2", ">2+", ">+2"):
+                self.assertNotIn(indicator, digest)
+
     def test_atomic_digest_replaces_hard_link_without_mutating_rollout(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)

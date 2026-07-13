@@ -20,9 +20,9 @@ _SYSTEM_BLOCK = re.compile(
     r"</(?:system-reminder|environment_context|permissions instructions)>",
     re.DOTALL | re.IGNORECASE,
 )
+_CREDENTIAL_TERM = r"(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH)"
 _CREDENTIAL_NAME = (
-    r"(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH|"
-    r"[A-Z][A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH))"
+    rf"(?:{_CREDENTIAL_TERM}|[A-Z][A-Z0-9_.-]*{_CREDENTIAL_TERM})"
 )
 _CREDENTIAL_KEY = (
     rf'(?:"{_CREDENTIAL_NAME}"|\'{_CREDENTIAL_NAME}\'|{_CREDENTIAL_NAME})'
@@ -32,7 +32,7 @@ _CREDENTIAL_VALUE_DELIMITER = r"[\]},;\r\n]"
 _SECRET_ASSIGNMENT = re.compile(
     rf"""
     (?P<prefix>
-        (?<![A-Z0-9_])
+        (?<![A-Z0-9_.-])
         {_CREDENTIAL_KEY}
         \s*[:=]\s*
     )
@@ -50,7 +50,7 @@ _SECRET_ASSIGNMENT = re.compile(
 )
 _YAML_CREDENTIAL_BLOCK_HEADER = re.compile(
     rf"^(?P<indent> *)(?P<key>{_CREDENTIAL_KEY})[ \t]*:[ \t]*"
-    r"[|>][+-]?[ \t]*(?:#[^\r\n]*)?"
+    r"[|>](?:[1-9][+-]?|[+-][1-9]?)?[ \t]*(?:#[^\r\n]*)?"
     r"(?P<newline>\r\n|\r|\n|\Z)$",
     re.IGNORECASE,
 )
