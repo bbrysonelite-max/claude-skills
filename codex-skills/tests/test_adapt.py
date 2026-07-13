@@ -135,17 +135,18 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("read-only evidence", result)
         self.assertIn("set `CONTEXT_KEEPER_DIR`", result)
 
-    def test_claude_memory_product_name_and_unrelated_claude_text_are_preserved(self):
+    def test_claude_memory_product_name_is_preserved_but_unallowlisted_text_is_rejected(self):
         source = source_text("claude-memory-search") + "\nClaude is a proper name here.\n"
 
-        result = adapt_text(
-            "claude-memory-search",
-            source,
-            entry=self.entries["claude-memory-search"],
-        )
+        with self.assertRaisesRegex(ValueError, "Claude runtime/client/environment"):
+            adapt_text(
+                "claude-memory-search",
+                source,
+                entry=self.entries["claude-memory-search"],
+            )
 
+        result = self.adapt_source("claude-memory-search")
         self.assertIn("claude-memory", result)
-        self.assertIn("Claude is a proper name here.", result)
 
     def test_unvalidated_snippet_does_not_trigger_known_source_count_checks(self):
         result = adapt_text(
@@ -341,6 +342,19 @@ class AdapterContractTests(unittest.TestCase):
                 entry=self.entries["last30days"],
             )
 
+    def test_last30days_rewrites_remaining_active_claude_runtime_coupling(self):
+        result = self.adapt_source("last30days")
+        reference = self.adapt_source(
+            "last30days", "references/save-html-brief.md"
+        )
+
+        self.assertNotIn("Claude Code renders", result)
+        self.assertNotIn("OpenClaw vs Claude Code", result)
+        self.assertIn("current Markdown renderer", result)
+        self.assertIn("current runtime", result)
+        self.assertNotIn("CLAUDE_SESSION_ID", reference)
+        self.assertIn("last30days-synthesis-$$.md", reference)
+
     def test_claude_memory_status_uses_toml_aware_codex_config_check(self):
         result = self.adapt_source("claude-memory-status")
 
@@ -350,6 +364,12 @@ class AdapterContractTests(unittest.TestCase):
         self.assertNotIn("claude_desktop_config", result)
         self.assertNotIn("json.tool", result)
         self.assertIn("read-only", result)
+
+    def test_claude_memory_index_uses_shipped_cli_not_missing_source_script(self):
+        result = self.adapt_source("claude-memory-index")
+
+        self.assertNotIn("scripts/claude_memory_indexer.py", result)
+        self.assertIn("claude-memory index", result)
 
     def test_named_library_and_brand_placement_wording_is_codex_native(self):
         librarian = self.adapt_source("skills-librarian")
@@ -629,8 +649,11 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             named_resources = {
                 ("agent-reach", "references/dev.md"),
                 ("context-keeper", "scripts/new-session.sh"),
+                ("here-now", "references/REFERENCE.md"),
+                ("last30days", "references/save-html-brief.md"),
                 ("last30days", "scripts/lib/providers.py"),
                 ("last30days", "scripts/watchlist.py"),
+                ("skill-miner", "BACKLOG.md"),
                 ("skill-miner", "REFERENCE.md"),
                 ("the-rebuild", "REFERENCE.md"),
                 ("signal-mine", "verticals/ssdi-work-fear.md"),

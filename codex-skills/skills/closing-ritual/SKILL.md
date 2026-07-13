@@ -46,7 +46,7 @@ Create a Codex task checklist item per step and work them top to bottom.
    project-agnostic **`doc-keeper`** skill (it discovers and reconciles whatever docs
    the project has); for the **Tiger Claw** repo use the specialized **`tiger-doc-keeper`**
    (it knows that repo's SOTU/PROGRESS set + doc-CI guards). Leave evergreen process
-   docs (CLAUDE.md / AGENTS.md / GROUND_TRUTH-style) alone.
+   docs (AGENTS.md / GROUND_TRUTH-style) alone.
 6. **Memory.** Write the session's durable facts to memory: what shipped, key decisions
    and *why*, any new working rule. Convert relative dates to absolute. Add/refresh the
    one-line pointers in `MEMORY.md`. Don't save what the repo/git already records.

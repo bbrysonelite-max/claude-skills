@@ -7,11 +7,33 @@
 - **Generated resources:** 88 Markdown; 268 total files
 - **Runtime contracts:** 52 sections; 6 native absences; 40 dependency preflights; 40 no-secret clauses
 - **Official validator:** 58/58 passed
+- **Regression suites:** **PASS**
+- **Injected defect checks:** **PASS**
 - **Installability:** generated names and resources validated; personal installation not inspected
 
 ## Schema, Metadata, Runtime, and Resources
 
 Structural/schema validation: **PASS**. Metadata, normalized output parity, Markdown compatibility, local links, symlink containment, helper overlays, resource modes, and runtime contracts were checked from generated files.
+
+## Official Validator Execution
+
+Observed execution modes: `offline-cached` 57, `offline-cached-fallback` 1.
+Initial online diagnostic (sanitized): uv PyYAML dependency resolution failed because DNS lookup failed.
+Fallback evidence: online dependency resolution failed, then the cached `UV_OFFLINE=1` environment validated 58/58 skills.
+
+## Regression and Injection Evidence
+
+| Interpreter | Observed tests | Result |
+|---|---:|---|
+| Python 3.14.5 | 196/196 | PASS |
+| Python 3.11.15 | 196/196 | PASS |
+
+| Injected defect category | Detected | Result |
+|---|---:|---|
+| Claude runtime compatibility | 2/2 | PASS |
+| frontmatter and metadata | 2/2 | PASS |
+| local resource integrity | 2/2 | PASS |
+| resource syntax | 3/3 | PASS |
 
 ## Syntax Checks
 

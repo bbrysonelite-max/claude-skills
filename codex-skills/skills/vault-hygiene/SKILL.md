@@ -7,7 +7,7 @@ description: "Use when performing daily vault maintenance, when indexes may be s
 
 Daily audit and repair of the Obsidian vault at `~/Desktop/vault-personal/`. Keeps indexes accurate, frontmatter valid, context files current, and agent memory honest.
 
-**Canonical rules:** `SPEC.md` > `CLAUDE.md` > everything else. Read both before starting.
+**Canonical rules:** `SPEC.md` > `AGENTS.md` > everything else. Read both before starting.
 
 ## When to Run
 
@@ -39,7 +39,7 @@ Folders to check:
 
 ### Phase 2: Frontmatter Validation
 
-Scan all `.md` files (excluding `index.md`, `CLAUDE.md`, `SPEC.md`, `STATUS.md`, `README.md`, `DECISIONS.md`, `Dashboard.md`).
+Scan all `.md` files (excluding `index.md`, `AGENTS.md`, `SPEC.md`, `STATUS.md`, `README.md`, `DECISIONS.md`, `Dashboard.md`).
 
 Required fields: `title`, `source`, `type`, `date`, `tags`
 
@@ -91,7 +91,7 @@ Treat historical `~/.claude/projects/-Users-brentbryson-Desktop-vault-personal/m
 ### Phase 6: Context Drift Detection
 
 Check for contradictions between:
-- `SPEC.md` vs `CLAUDE.md` (SPEC wins — update CLAUDE.md if they disagree)
+- `SPEC.md` vs `AGENTS.md` (SPEC wins — update AGENTS.md if they disagree)
 - `STATUS.md` vs actual vault state (actual state wins — update STATUS.md)
 - `MEMORY.md` entries vs memory file contents (fix index to match files)
 - `Dashboard.md` vs actual vault structure (update Dashboard)
@@ -132,7 +132,7 @@ After all phases, produce a summary:
 - Never delete content files. Only move, fix metadata, or flag.
 - Never commit or push without explicit user approval.
 - Follow the Eight Rules from SPEC.md at all times.
-- If SPEC.md and CLAUDE.md disagree, update CLAUDE.md to match SPEC.md.
+- If SPEC.md and AGENTS.md disagree, update AGENTS.md to match SPEC.md.
 
 ## Codex Runtime
 

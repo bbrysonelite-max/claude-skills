@@ -8,7 +8,7 @@ description: "Take a TigerClaw PR from green to live \u2014 watch CI to completi
 The merge → CI-watch → Cloud Run deploy → live `/health` loop Brent runs on nearly every PR.
 A deterministic script does the mechanical parts; you own the **approval gate** and the verdict.
 
-## Hard rules (non-negotiable — from AGENTS.md / CLAUDE.md)
+## Hard rules (non-negotiable — from AGENTS.md and repository instructions)
 
 - **Never merge without Brent's explicit OK for THAT PR.** The script refuses to merge without `--confirm`; you supply it only after he says go for that specific PR number.
 - **Never push directly to main.** ship-it only merges existing PRs via `gh`.

@@ -40,7 +40,7 @@ description: "Use when the user wants to index a repository into claude-memory, 
 ### Dry run (preview what will be indexed)
 ```bash
 source .venv/bin/activate
-python scripts/claude_memory_indexer.py \
+claude-memory index \
   --repo-path /path/to/repo \
   --user-id my-repo-name \
   --dry-run
@@ -48,7 +48,7 @@ python scripts/claude_memory_indexer.py \
 
 ### Full index
 ```bash
-python scripts/claude_memory_indexer.py \
+claude-memory index \
   --repo-path /path/to/repo \
   --user-id my-repo-name
 # Add --limit 500 for large repos (indexes 500 newest commits)

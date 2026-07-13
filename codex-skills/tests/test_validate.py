@@ -6,18 +6,22 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from unittest.mock import patch
 
 from scripts.validate import (
     CollectionReport,
+    InjectedDefectValidation,
     OfficialValidation,
+    RegressionValidation,
     SkillValidation,
     SyntaxValidation,
     main,
     render_report,
+    run_injected_defect_validation,
     run_official_validation,
+    run_regression_validation,
     validate_collection,
     validate_skill,
 )
@@ -126,12 +130,47 @@ class SkillValidationTests(unittest.TestCase):
 
         self.assertTrue(any("AskUserQuestion" in error for error in result.errors))
 
-    def test_validation_accepts_exact_historical_claude_reference(self):
+    def test_validation_accepts_exact_path_scoped_historical_claude_reference(self):
         skill = make_skill(
-            self.root, body="Read historical `.claude/sessions/` as evidence.\n"
+            self.root,
+            name="closing-ritual",
+            body=(
+                "Treat historical `.claude/sessions/` files as read-only evidence; "
+                "never write new snapshots there.\n"
+            ),
         )
 
         self.assertEqual((), validate_skill(skill).errors)
+
+        same_literal_wrong_path = make_skill(
+            self.root,
+            name="sample",
+            body=(
+                "Treat historical `.claude/sessions/` files as read-only evidence; "
+                "never write new snapshots there.\n"
+            ),
+        )
+        self.assertTrue(
+            any(
+                "Claude runtime/client/environment" in error
+                for error in validate_skill(same_literal_wrong_path).errors
+            )
+        )
+
+    def test_validation_rejects_claude_code_session_variable_injection(self):
+        skill = make_skill(
+            self.root,
+            body=(
+                "Run this workflow only in Claude Code and write to "
+                "${CLAUDE_SESSION_ID}.\n"
+            ),
+        )
+
+        result = validate_skill(skill)
+
+        self.assertTrue(
+            any("Claude runtime/client/environment" in error for error in result.errors)
+        )
 
     def test_validation_rejects_active_claude_path(self):
         skill = make_skill(
@@ -191,6 +230,15 @@ class SkillValidationTests(unittest.TestCase):
                 "SKILL.md:" in error and "references/missing.md" in error
                 for error in result.errors
             )
+        )
+
+    def test_validation_rejects_missing_inline_resource_without_family_directory(self):
+        skill = make_skill(self.root, body="Run `scripts/missing.py` now.\n")
+
+        result = validate_skill(skill)
+
+        self.assertTrue(
+            any("scripts/missing.py" in error for error in result.errors)
         )
 
     def test_validation_allows_external_anchor_and_templated_links(self):
@@ -432,8 +480,61 @@ class CollectionValidationTests(unittest.TestCase):
 
         self.assertEqual(3, runner.call_count)
         self.assertTrue(all(result.passed for result in results))
+        self.assertEqual("offline-cached-fallback", results[0].execution_mode)
+        self.assertEqual("offline-cached", results[1].execution_mode)
+        self.assertIn("PyYAML", results[0].initial_diagnostic)
+        self.assertIn("DNS", results[0].initial_diagnostic)
+        self.assertNotIn("pypi.org", results[0].initial_diagnostic)
         self.assertEqual("1", runner.call_args_list[1].kwargs["env"]["UV_OFFLINE"])
         self.assertEqual("1", runner.call_args_list[2].kwargs["env"]["UV_OFFLINE"])
+
+    def test_regression_validation_records_observed_counts_and_internal_mode(self):
+        version = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Python 3.14.5\n", stderr=""
+        )
+        suite = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="",
+            stderr="Ran 193 tests in 1.234s\n\nOK\n",
+        )
+
+        with (
+            patch(
+                "scripts.validate._python_executables",
+                return_value=("/usr/local/bin/python3",),
+            ),
+            patch(
+                "scripts.validate.subprocess.run", side_effect=(version, suite)
+            ) as runner,
+        ):
+            results = run_regression_validation(self.repo)
+
+        self.assertEqual(1, len(results))
+        self.assertTrue(results[0].passed)
+        self.assertEqual(193, results[0].tests_run)
+        self.assertEqual("Python 3.14.5", results[0].interpreter)
+        self.assertEqual(
+            "1",
+            runner.call_args_list[1].kwargs["env"][
+                "CODEX_VALIDATE_INTERNAL_TEST_MODE"
+            ],
+        )
+
+    def test_injected_defect_validation_observes_required_categories(self):
+        results = run_injected_defect_validation()
+
+        categories = {result.category for result in results}
+        self.assertEqual(
+            {
+                "Claude runtime compatibility",
+                "frontmatter and metadata",
+                "local resource integrity",
+                "resource syntax",
+            },
+            categories,
+        )
+        self.assertTrue(all(result.passed for result in results))
 
     def test_source_only_ignores_missing_generated_output(self):
         self.make_source_and_output()
@@ -498,8 +599,81 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual(40, len(report.dependency_statuses))
         self.assertIn("No live external workflows", text)
 
+    def test_report_renders_observed_fallback_regressions_and_injections(self):
+        report = replace(
+            CollectionReport.empty(self.repo),
+            official_results=(
+                OfficialValidation(
+                    "sample",
+                    True,
+                    "Skill is valid!",
+                    "offline-cached-fallback",
+                    "uv PyYAML dependency resolution failed because DNS lookup failed",
+                ),
+            ),
+            regression_results=(
+                RegressionValidation("Python 3.14.5", 193, True, ""),
+                RegressionValidation("Python 3.11.15", 193, True, ""),
+            ),
+            injected_defect_results=(
+                InjectedDefectValidation(
+                    "Claude runtime compatibility", "session variable", True, ""
+                ),
+                InjectedDefectValidation(
+                    "local resource integrity", "missing script", True, ""
+                ),
+            ),
+        )
+
+        text = render_report(report)
+
+        self.assertIn("offline-cached-fallback", text)
+        self.assertIn("DNS lookup failed", text)
+        self.assertIn("Python 3.14.5", text)
+        self.assertIn("193/193", text)
+        self.assertIn("| Claude runtime compatibility | 1/1 | PASS |", text)
+
+    def test_report_does_not_claim_unobserved_regression_or_injection_passes(self):
+        text = render_report(CollectionReport.empty(self.repo))
+
+        self.assertIn("Regression suites: **NOT OBSERVED**", text)
+        self.assertIn("Injected defect checks: **NOT OBSERVED**", text)
+        self.assertNotIn("Regression suites: **PASS**", text)
+        self.assertNotIn("Injected defect checks: **PASS**", text)
+
 
 class CliTests(unittest.TestCase):
+    def test_default_cli_explicitly_requests_observed_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            report = CollectionReport.empty(repo)
+            with (
+                patch("scripts.validate.validate_collection", return_value=report) as validator,
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(0, main(["--repo", str(repo)]))
+
+        validator.assert_called_once_with(
+            repo,
+            installed=None,
+            source_only=False,
+            collect_evidence=True,
+        )
+
+    def test_source_only_and_check_are_rejected_as_incompatible(self):
+        stderr = io.StringIO()
+        with (
+            patch("scripts.validate.validate_collection") as validator,
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            main(["--source-only", "--check"])
+
+        self.assertEqual(2, raised.exception.code)
+        self.assertIn("--source-only", stderr.getvalue())
+        self.assertIn("--check", stderr.getvalue())
+        validator.assert_not_called()
+
     def test_json_cli_returns_nonzero_and_structured_output_on_errors(self):
         report = CollectionReport.empty(Path("/tmp/repo"), errors=("broken",))
         stdout = io.StringIO()

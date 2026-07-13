@@ -36,7 +36,7 @@ export OXYLABS_PASSWORD="$(gcloud secrets versions access latest --secret=oxylab
 
 ## Codex Runtime
 
-Resolve sibling Codex skills from installed skill roots (including `~/.codex/skills`) or the current collection; do not assume a Claude skill root.
+Resolve sibling Codex skills from installed skill roots (including `~/.codex/skills`) or the current collection; do not assume a legacy skill root.
 
 Never expose or print secret, credential, or token values.
 

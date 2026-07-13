@@ -18,7 +18,7 @@ You can include an optional header on site API calls:
 Examples:
 
 - `X-HereNow-Client: cursor/publish-sh`
-- `X-HereNow-Client: claude-code/publish-sh`
+- `X-HereNow-Client: codex/publish-sh`
 - `X-HereNow-Client: codex/cli`
 - `X-HereNow-Client: openclaw/direct-api`
 

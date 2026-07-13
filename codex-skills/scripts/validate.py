@@ -83,6 +83,21 @@ LOCAL_RESOURCE = re.compile(
     r"((?:scripts|references|assets|templates|verticals|bin)/"
     r"[A-Za-z0-9_.@%+/-]+)"
 )
+TARGET_PROJECT_RESOURCE_LINES = {
+    ("here-now", "references/REFERENCE.md"): frozenset(
+        {
+            '    { "path": "assets/app.js", "size": 999, "contentType": "text/javascript; charset=utf-8", "hash": "e5f6a7b8..." }',
+            '    "ogImagePath": "assets/cover.png"',
+            "- `files` (required): array of `{ path, size, contentType, hash }`. At least one file. Paths should be relative to the site root (e.g. `index.html`, `assets/style.css`) — don't include a parent directory name like `my-project/index.html`.",
+            '    "skipped": ["assets/app.js"],',
+        }
+    ),
+    ("whitelabel-radar", "SKILL.md"): frozenset(
+        {
+            "> the right entities, segment, act. Clone it for other verticals/intents (recruits, partners, buyers).",
+        }
+    ),
+}
 PLACEHOLDER = re.compile(
     r"\{\{[A-Z_][A-Z0-9_]*\}\}|<<[A-Z_][A-Z0-9_]*>>|"
     r"__PLACEHOLDER__|\b(?:TODO|TBD):\s*replace\b|<PLACEHOLDER>",
@@ -142,6 +157,24 @@ class OfficialValidation:
     name: str
     passed: bool
     output: str
+    execution_mode: str = "online"
+    initial_diagnostic: str = ""
+
+
+@dataclass(frozen=True)
+class RegressionValidation:
+    interpreter: str
+    tests_run: int
+    passed: bool
+    diagnostic: str
+
+
+@dataclass(frozen=True)
+class InjectedDefectValidation:
+    category: str
+    name: str
+    passed: bool
+    diagnostic: str
 
 
 @dataclass(frozen=True)
@@ -186,6 +219,8 @@ class CollectionReport:
     dependency_statuses: tuple[DependencyStatus, ...]
     installed_count: int | None
     source_only: bool
+    regression_results: tuple[RegressionValidation, ...] = ()
+    injected_defect_results: tuple[InjectedDefectValidation, ...] = ()
 
     @classmethod
     def empty(
@@ -263,10 +298,30 @@ class CollectionReport:
                         "name": result.name,
                         "passed": result.passed,
                         "output": result.output,
+                        "execution_mode": result.execution_mode,
+                        "initial_diagnostic": result.initial_diagnostic,
                     }
                     for result in self.official_results
                 ],
             },
+            "regression_suites": [
+                {
+                    "interpreter": result.interpreter,
+                    "tests_run": result.tests_run,
+                    "passed": result.passed,
+                    "diagnostic": result.diagnostic,
+                }
+                for result in self.regression_results
+            ],
+            "injected_defects": [
+                {
+                    "category": result.category,
+                    "name": result.name,
+                    "passed": result.passed,
+                    "diagnostic": result.diagnostic,
+                }
+                for result in self.injected_defect_results
+            ],
             "dependencies": [
                 {
                     "name": result.name,
@@ -417,15 +472,16 @@ def _validate_markdown(
         target = match.group(1).rstrip(".,;:")
         if _is_templated_target(target):
             continue
-        resource_family = target.split("/", 1)[0]
-        if not (skill_root / resource_family).exists():
-            # Examples may describe a target project's layout. A matching generated
-            # resource family makes the reference deterministic and locally owned.
+        line_number = _line_number(text, match.start())
+        source_line = text.splitlines()[line_number - 1]
+        if source_line in TARGET_PROJECT_RESOURCE_LINES.get(
+            (skill_root.name, relative), frozenset()
+        ):
             continue
         candidates = (markdown_path.parent / target, skill_root / target)
         if not any(candidate.exists() for candidate in candidates):
             errors.append(
-                f"{relative}:{_line_number(text, match.start())}: referenced local "
+                f"{relative}:{line_number}: referenced local "
                 f"resource does not exist: {target}"
             )
 
@@ -499,13 +555,8 @@ def _run_syntax_command(
 def _syntax_checks(skill_root: Path) -> tuple[SyntaxValidation, ...]:
     results: list[SyntaxValidation] = []
     python_paths = _resource_paths(skill_root, {".py"})
-    python_executables: list[str] = []
-    default_python = shutil.which("python3") or sys.executable
-    python_executables.append(default_python)
-    python311 = shutil.which("python3.11")
-    if python311 and Path(python311).resolve() != Path(default_python).resolve():
-        python_executables.append(python311)
-    for executable in python_executables:
+
+    for executable in _python_executables():
         errors: list[str] = []
         with tempfile.TemporaryDirectory(prefix="codex-skill-pycache-") as cache:
             environment = dict(os.environ)
@@ -559,6 +610,16 @@ def _syntax_checks(skill_root: Path) -> tuple[SyntaxValidation, ...]:
             )
         )
     return tuple(results)
+
+
+def _python_executables() -> tuple[str, ...]:
+    executables: list[str] = []
+    default_python = shutil.which("python3") or sys.executable
+    executables.append(default_python)
+    python311 = shutil.which("python3.11")
+    if python311 and Path(python311).resolve() != Path(default_python).resolve():
+        executables.append(python311)
+    return tuple(executables)
 
 
 def validate_skill(path: Path) -> SkillValidation:
@@ -890,6 +951,23 @@ def _validate_runtime_contracts(
     return runtime_count, native_absent, dependency_preflight, dependency_secret
 
 
+def _sanitize_official_diagnostic(output: str) -> str:
+    normalized = output.lower()
+    if "pyyaml" in normalized and (
+        "dns error" in normalized or "failed to lookup address" in normalized
+    ):
+        return "uv PyYAML dependency resolution failed because DNS lookup failed"
+    return "official validator dependency resolution failed"
+
+
+def _normalize_official_output(output: str) -> str:
+    return re.sub(
+        r"(Request failed after \d+ retries) in \d+(?:\.\d+)?s",
+        r"\1",
+        output.strip(),
+    )
+
+
 def run_official_validation(
     skill_paths: tuple[Path, ...] | list[Path],
 ) -> tuple[OfficialValidation, ...]:
@@ -932,12 +1010,7 @@ def run_official_validation(
                 timeout=180,
                 env=environment,
             )
-            output = (completed.stdout + completed.stderr).strip()
-            output = re.sub(
-                r"(Request failed after \d+ retries) in \d+(?:\.\d+)?s",
-                r"\1",
-                output,
-            )
+            output = _normalize_official_output(completed.stdout + completed.stderr)
             normalized_output = output.lower()
             shared_resolution_failure = (
                 completed.returncode != 0
@@ -959,25 +1032,237 @@ def run_official_validation(
                     timeout=180,
                     env=offline_environment,
                 )
-                offline_output = (
+                offline_output = _normalize_official_output(
                     offline_result.stdout + offline_result.stderr
-                ).strip()
+                )
                 if offline_result.returncode == 0:
                     offline = True
-                    results.append(OfficialValidation(path.name, True, offline_output))
+                    results.append(
+                        OfficialValidation(
+                            path.name,
+                            True,
+                            offline_output,
+                            "offline-cached-fallback",
+                            _sanitize_official_diagnostic(output),
+                        )
+                    )
                     continue
-                results.append(OfficialValidation(path.name, False, output))
+                results.append(
+                    OfficialValidation(
+                        path.name,
+                        False,
+                        offline_output or output,
+                        "offline-fallback-failed",
+                        _sanitize_official_diagnostic(output),
+                    )
+                )
                 results.extend(
-                    OfficialValidation(remaining.name, False, output)
+                    OfficialValidation(
+                        remaining.name,
+                        False,
+                        output,
+                        "not-run-after-shared-failure",
+                        _sanitize_official_diagnostic(output),
+                    )
                     for remaining in paths[index + 1 :]
                 )
                 break
             results.append(
-                OfficialValidation(path.name, completed.returncode == 0, output)
+                OfficialValidation(
+                    path.name,
+                    completed.returncode == 0,
+                    output,
+                    "offline-cached" if offline else "online",
+                )
             )
         except (OSError, subprocess.SubprocessError) as error:
-            results.append(OfficialValidation(path.name, False, str(error)))
+            results.append(
+                OfficialValidation(path.name, False, str(error), "execution-error")
+            )
     return tuple(results)
+
+
+def run_regression_validation(repo_root: Path) -> tuple[RegressionValidation, ...]:
+    """Run the full suite in bounded subprocesses without recursively collecting evidence."""
+    codex_root = Path(repo_root) / "codex-skills"
+    results: list[RegressionValidation] = []
+    for executable in _python_executables():
+        try:
+            version_result = subprocess.run(
+                [executable, "--version"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            interpreter = (
+                version_result.stdout + version_result.stderr
+            ).strip() or Path(executable).name
+            environment = dict(os.environ)
+            environment["CODEX_VALIDATE_INTERNAL_TEST_MODE"] = "1"
+            completed = subprocess.run(
+                [
+                    executable,
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests",
+                    "-q",
+                ],
+                cwd=codex_root,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                env=environment,
+            )
+            output = completed.stdout + completed.stderr
+            match = re.search(r"Ran\s+(\d+)\s+tests?\b", output)
+            tests_run = int(match.group(1)) if match else 0
+            passed = completed.returncode == 0 and tests_run > 0
+            diagnostic = "" if passed else (
+                f"exit code {completed.returncode}; observed {tests_run} tests"
+            )
+            results.append(
+                RegressionValidation(interpreter, tests_run, passed, diagnostic)
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            results.append(
+                RegressionValidation(
+                    Path(executable).name,
+                    0,
+                    False,
+                    f"regression suite failed to run: {type(error).__name__}",
+                )
+            )
+    return tuple(results)
+
+
+def _write_injection_skill(root: Path, body: str = "# Sample\n") -> Path:
+    skill = root / "sample"
+    (skill / "agents").mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        '---\nname: "sample"\ndescription: "Useful validation sample."\n---\n\n'
+        + body,
+        encoding="utf-8",
+    )
+    (skill / "agents" / "openai.yaml").write_text(
+        "interface:\n"
+        '  display_name: "Sample"\n'
+        '  short_description: "A useful validation sample."\n'
+        '  default_prompt: "Use $sample to validate this fixture."\n',
+        encoding="utf-8",
+    )
+    return skill
+
+
+def run_injected_defect_validation() -> tuple[InjectedDefectValidation, ...]:
+    """Inject representative defects and record whether the real validator detects them."""
+    checks: list[InjectedDefectValidation] = []
+
+    def observe(
+        category: str,
+        name: str,
+        configure,
+        expected: tuple[str, ...],
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="codex-validator-injection-") as directory:
+            skill = _write_injection_skill(Path(directory))
+            configure(skill)
+            result = validate_skill(skill)
+            passed = all(
+                any(marker in error for error in result.errors) for marker in expected
+            )
+            checks.append(
+                InjectedDefectValidation(
+                    category,
+                    name,
+                    passed,
+                    "" if passed else "expected defect was not detected",
+                )
+            )
+
+    observe(
+        "Claude runtime compatibility",
+        "Claude Code session environment",
+        lambda skill: (skill / "SKILL.md").write_text(
+            '---\nname: "sample"\ndescription: "Useful validation sample."\n---\n\n'
+            "Run this workflow only in Claude Code and write to "
+            "${CLAUDE_SESSION_ID}.\n",
+            encoding="utf-8",
+        ),
+        ("Claude runtime/client/environment",),
+    )
+    observe(
+        "Claude runtime compatibility",
+        "Claude-only tool",
+        lambda skill: (skill / "SKILL.md").write_text(
+            '---\nname: "sample"\ndescription: "Useful validation sample."\n---\n\n'
+            "Use the AskUserQuestion tool now.\n",
+            encoding="utf-8",
+        ),
+        ("AskUserQuestion",),
+    )
+    observe(
+        "frontmatter and metadata",
+        "extra frontmatter field",
+        lambda skill: (skill / "SKILL.md").write_text(
+            '---\nname: "sample"\ndescription: "Useful validation sample."\n'
+            "extra: forbidden\n---\n\n# Sample\n",
+            encoding="utf-8",
+        ),
+        ("frontmatter",),
+    )
+    observe(
+        "frontmatter and metadata",
+        "missing default prompt token",
+        lambda skill: (skill / "agents" / "openai.yaml").write_text(
+            "interface:\n"
+            '  display_name: "Sample"\n'
+            '  short_description: "A useful validation sample."\n'
+            '  default_prompt: "Use this fixture."\n',
+            encoding="utf-8",
+        ),
+        ("$sample",),
+    )
+    observe(
+        "local resource integrity",
+        "missing inline script",
+        lambda skill: (skill / "SKILL.md").write_text(
+            '---\nname: "sample"\ndescription: "Useful validation sample."\n---\n\n'
+            "Run `scripts/missing.py`.\n",
+            encoding="utf-8",
+        ),
+        ("scripts/missing.py",),
+    )
+    observe(
+        "local resource integrity",
+        "broken Markdown link",
+        lambda skill: (skill / "SKILL.md").write_text(
+            '---\nname: "sample"\ndescription: "Useful validation sample."\n---\n\n'
+            "See [missing](references/missing.md).\n",
+            encoding="utf-8",
+        ),
+        ("broken local link",),
+    )
+    for suffix, content in (
+        ("py", "def broken(:\n"),
+        ("sh", "if then\n"),
+        ("js", "function {\n"),
+    ):
+        observe(
+            "resource syntax",
+            f"invalid {suffix} syntax",
+            lambda skill, suffix=suffix, content=content: (
+                (skill / "scripts").mkdir(),
+                (skill / "scripts" / f"bad.{suffix}").write_text(
+                    content, encoding="utf-8"
+                ),
+            ),
+            (f"bad.{suffix}",),
+        )
+    return tuple(checks)
 
 
 def _dependency_status(entry: SkillEntry) -> DependencyStatus:
@@ -1069,6 +1354,7 @@ def validate_collection(
     installed: Path | None = None,
     *,
     source_only: bool = False,
+    collect_evidence: bool = False,
 ) -> CollectionReport:
     """Validate protected inputs and, unless source-only, all generated outputs."""
     root = Path(repo_root).expanduser().resolve(strict=False)
@@ -1200,6 +1486,34 @@ def validate_collection(
             Path(installed), output_root, expected_names, errors
         )
 
+    regression_results: tuple[RegressionValidation, ...] = ()
+    injected_defect_results: tuple[InjectedDefectValidation, ...] = ()
+    evidence_required = (
+        manifest is not None
+        and len(manifest.entries) == EXPECTED_SKILL_COUNT
+        and len(actual_names) == EXPECTED_SKILL_COUNT
+    )
+    internal_test_mode = os.environ.get("CODEX_VALIDATE_INTERNAL_TEST_MODE") == "1"
+    if evidence_required and collect_evidence and not internal_test_mode:
+        regression_results = run_regression_validation(root)
+        injected_defect_results = run_injected_defect_validation()
+        if not regression_results:
+            errors.append("full regression suite evidence is missing")
+        for result in regression_results:
+            if not result.passed:
+                errors.append(
+                    f"regression suite failed under {result.interpreter}: "
+                    f"{result.diagnostic}"
+                )
+        if not injected_defect_results:
+            errors.append("injected defect validation evidence is missing")
+        for result in injected_defect_results:
+            if not result.passed:
+                errors.append(
+                    f"injected defect was not detected ({result.category}/"
+                    f"{result.name}): {result.diagnostic}"
+                )
+
     markdown_count = sum(result.markdown_count for result in skill_results)
     resource_count = 0
     if output_root.is_dir():
@@ -1224,6 +1538,8 @@ def validate_collection(
         dependency_statuses=dependency_statuses,
         installed_count=installed_count,
         source_only=False,
+        regression_results=regression_results,
+        injected_defect_results=injected_defect_results,
     )
 
 
@@ -1254,6 +1570,20 @@ def render_report(report: CollectionReport) -> str:
     local_status = "PASS" if not any(
         "official validator" not in error for error in report.errors
     ) else "FAIL"
+    regression_status = (
+        "NOT OBSERVED"
+        if not report.regression_results
+        else "PASS"
+        if all(result.passed for result in report.regression_results)
+        else "FAIL"
+    )
+    injection_status = (
+        "NOT OBSERVED"
+        if not report.injected_defect_results
+        else "PASS"
+        if all(result.passed for result in report.injected_defect_results)
+        else "FAIL"
+    )
     lines = [
         "# Codex Skills Validation",
         "",
@@ -1272,6 +1602,8 @@ def render_report(report: CollectionReport) -> str:
         f"{report.dependency_preflight_count} dependency preflights; "
         f"{report.dependency_secret_count} no-secret clauses",
         f"- **Official validator:** {report.official_passes}/{len(report.official_results)} passed",
+        f"- **Regression suites:** **{regression_status}**",
+        f"- **Injected defect checks:** **{injection_status}**",
         (
             f"- **Installability:** {report.installed_count}/{report.skill_count} generated "
             "names satisfied by installed managed links"
@@ -1286,11 +1618,82 @@ def render_report(report: CollectionReport) -> str:
         "Markdown compatibility, local links, symlink containment, helper overlays, "
         "resource modes, and runtime contracts were checked from generated files.",
         "",
-        "## Syntax Checks",
+        "## Official Validator Execution",
         "",
-        "| Language | Observed files | Interpreters | Result |",
-        "|---|---:|---|---|",
     ]
+    if report.official_results:
+        mode_counts: dict[str, int] = {}
+        for result in report.official_results:
+            mode_counts[result.execution_mode] = (
+                mode_counts.get(result.execution_mode, 0) + 1
+            )
+        lines.append(
+            "Observed execution modes: "
+            + ", ".join(
+                f"`{mode}` {count}" for mode, count in sorted(mode_counts.items())
+            )
+            + "."
+        )
+        diagnostics = tuple(
+            dict.fromkeys(
+                result.initial_diagnostic
+                for result in report.official_results
+                if result.initial_diagnostic
+            )
+        )
+        if diagnostics:
+            lines.append(
+                "Initial online diagnostic (sanitized): " + "; ".join(diagnostics) + "."
+            )
+            lines.append(
+                "Fallback evidence: online dependency resolution failed, then the cached "
+                f"`UV_OFFLINE=1` environment validated {report.official_passes}/"
+                f"{len(report.official_results)} skills."
+            )
+    else:
+        lines.append("Official validator execution was not observed.")
+    lines.extend(["", "## Regression and Injection Evidence", ""])
+    if report.regression_results:
+        lines.extend(
+            [
+                "| Interpreter | Observed tests | Result |",
+                "|---|---:|---|",
+            ]
+        )
+        for result in report.regression_results:
+            result_text = "PASS" if result.passed else "FAIL"
+            lines.append(
+                f"| {result.interpreter} | {result.tests_run}/{result.tests_run} | "
+                f"{result_text} |"
+            )
+    else:
+        lines.append("Regression suites: **NOT OBSERVED**.")
+    lines.append("")
+    if report.injected_defect_results:
+        category_counts: dict[str, tuple[int, int]] = {}
+        for result in report.injected_defect_results:
+            passed, total = category_counts.get(result.category, (0, 0))
+            category_counts[result.category] = (passed + result.passed, total + 1)
+        lines.extend(
+            [
+                "| Injected defect category | Detected | Result |",
+                "|---|---:|---|",
+            ]
+        )
+        for category, (passed, total) in sorted(category_counts.items()):
+            result_text = "PASS" if passed == total else "FAIL"
+            lines.append(f"| {category} | {passed}/{total} | {result_text} |")
+    else:
+        lines.append("Injected defect checks: **NOT OBSERVED**.")
+    lines.extend(
+        [
+            "",
+            "## Syntax Checks",
+            "",
+            "| Language | Observed files | Interpreters | Result |",
+            "|---|---:|---|---|",
+        ]
+    )
     for language in ("python", "shell", "javascript"):
         runtimes = sorted(interpreters.get(language, {"not available"}))
         relevant = [result for result in report.syntax_results if result.language == language]
@@ -1365,9 +1768,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
+    if args.source_only and args.check:
+        parser.error("--source-only cannot be combined with --check")
 
     report = validate_collection(
-        args.repo, installed=args.installed, source_only=args.source_only
+        args.repo,
+        installed=args.installed,
+        source_only=args.source_only,
+        collect_evidence=not args.source_only,
     )
     rendered = render_report(report)
     report_path = args.repo / "codex-skills" / "VALIDATION.md"

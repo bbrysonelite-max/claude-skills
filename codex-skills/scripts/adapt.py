@@ -213,11 +213,16 @@ ADAPTER_REGISTRY: Mapping[str, AdapterSpec] = MappingProxyType(_ADAPTERS)
 RESOURCE_ADAPTER_PATHS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "agent-reach": frozenset({"references/dev.md"}),
+        "here-now": frozenset({"references/REFERENCE.md"}),
         "last30days": frozenset(
-            {"scripts/lib/providers.py", "scripts/watchlist.py"}
+            {
+                "references/save-html-brief.md",
+                "scripts/lib/providers.py",
+                "scripts/watchlist.py",
+            }
         ),
         "signal-mine": frozenset({"verticals/ssdi-work-fear.md"}),
-        "skill-miner": frozenset({"REFERENCE.md"}),
+        "skill-miner": frozenset({"BACKLOG.md", "REFERENCE.md"}),
         "the-rebuild": frozenset({"REFERENCE.md"}),
     }
 )
@@ -302,6 +307,124 @@ _PROHIBITED_MARKDOWN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 # Historical or non-operational mentions must be literal and path-scoped.
 _MARKDOWN_ALLOWLIST: Mapping[tuple[str, str], tuple[str, ...]] = MappingProxyType({})
+_CLAUDE_REFERENCE = re.compile(r"claude|\.claude", re.IGNORECASE)
+_ALLOWED_CLAUDE_LINES: Mapping[tuple[str, str], frozenset[str]] = MappingProxyType(
+    {
+        ("vault-hygiene", "SKILL.md"): frozenset(
+            {
+                "- After any bulk ingestion (Wispr, OpenAI, Claude Code, NotebookLM, Manus)",
+                "- `03_The_Stream/` and each subfolder (`Wispr_Flow/`, `NotebookLM/`, `OpenAI/`, `Claude_Code/`, `Manus/`)",
+                "- `source` is one of: `wispr_flow`, `notebooklm`, `openai`, `claude_code`, `manus`, `book`, `synthesis`",
+                "Treat historical `~/.claude/projects/-Users-brentbryson-Desktop-vault-personal/memory/` files as read-only evidence; never update or delete them. Record current corrections in the vault's current documentation and indexes.",
+            }
+        ),
+        ("skill-miner", "SKILL.md"): frozenset(
+            {
+                "2. Use the original `scripts/digest.py` only for deliberate, read-only analysis of historical Claude data. Never use it for current Codex rollouts.",
+                "Historical Claude session or library data may be inspected only as read-only input.",
+            }
+        ),
+        ("skill-miner", "REFERENCE.md"): frozenset(
+            {
+                "Use historical `~/.claude/projects/-Users-brentbryson/*.jsonl` only as read-only evidence with the original `scripts/digest.py`; never use that helper for current Codex rollouts.",
+            }
+        ),
+        ("closing-ritual", "SKILL.md"): frozenset(
+            {
+                "Treat historical `.claude/sessions/` files as read-only evidence; never write new snapshots there.",
+            }
+        ),
+        ("context-keeper", "SKILL.md"): frozenset(
+            {
+                "Treat historical `.claude/sessions/` files as read-only evidence; never write new snapshots there.",
+            }
+        ),
+        ("doc-keeper", "SKILL.md"): frozenset(
+            {
+                "Treat historical `.claude/sessions/` files as read-only evidence; never write new snapshots there.",
+            }
+        ),
+        ("tiger-doc-keeper", "SKILL.md"): frozenset(
+            {
+                "Treat historical `.claude/sessions/` files as read-only evidence; never write new snapshots there.",
+            }
+        ),
+        ("claude-memory-search", "SKILL.md"): frozenset(
+            {
+                'name: "claude-memory-search"',
+                "# Search Git History with claude-memory",
+                "Keep `claude-memory` as the external product name. Use its actual MCP tools when available; otherwise preflight and use the `claude-memory` CLI.",
+                "- `claude-memory CLI or MCP`",
+            }
+        ),
+        ("claude-memory-debug", "SKILL.md"): frozenset(
+            {
+                'name: "claude-memory-debug"',
+                "name: claude-memory-debug",
+                "# Debug with claude-memory",
+                'claude-memory: bug_fix_history("payments")',
+                "Keep `claude-memory` as the external product name. Use its actual MCP tools when available; otherwise preflight and use the `claude-memory` CLI.",
+                "- `claude-memory CLI or MCP`",
+            }
+        ),
+        ("claude-memory-index", "SKILL.md"): frozenset(
+            {
+                'name: "claude-memory-index"',
+                'description: "Use when the user wants to index a repository into claude-memory, start using claude-memory on a new project, or re-index after significant history. Examples: \\"index the lokumcu repo\\", \\"set up claude memory for this project\\", \\"re-index everything\\""',
+                "# Index a Repository with claude-memory",
+                "- Starting claude-memory on a new repository for the first time",
+                "- Setting up claude-memory for a team member's repo",
+                "6. Run claude-memory install to register the MCP server",
+                "claude-memory index \\",
+                "### Install claude-memory MCP integration",
+                "claude-memory install \\",
+                "claude-memory index --repo-path . --user-id my-repo-name",
+                "claude-memory install --repo-path . --user-id my-repo-name",
+                "Keep `claude-memory` as the external product name. Use its actual MCP tools when available; otherwise preflight and use the `claude-memory` CLI.",
+                "- `claude-memory CLI or MCP`",
+            }
+        ),
+        ("claude-memory-status", "SKILL.md"): frozenset(
+            {
+                'name: "claude-memory-status"',
+                'description: "Use when the user wants to check what is indexed, how many commits are in memory, or whether claude-memory is set up correctly. Examples: \\"is claude memory set up?\\", \\"how many commits are indexed?\\", \\"check claude memory status\\""',
+                "# Check claude-memory Status",
+                "- User asks if claude-memory is configured",
+                "- [ ] claude-memory MCP server is present in `~/.codex/config.toml`",
+                "claude-memory status --repo-path /path/to/repo",
+                "from claude_memory import ChromaCommitIndex",
+                'python3 -c \'from pathlib import Path; import tomllib; p=Path.home()/".codex/config.toml"; d=tomllib.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}; print("claude-memory configured" if "claude-memory" in d.get("mcp_servers", {}) else "claude-memory not configured")\'',
+                "── claude-memory status ──────────────────────────",
+                "| `0 commits indexed` | Run `claude-memory index --repo-path .` |",
+                "| Wrong user-id | Must match `CLAUDE_MEMORY_USER_ID` in MCP config |",
+                "| Chroma path conflict | Ensure `CLAUDE_MEMORY_CHROMA_DIR` is set to `chroma_commits/` (not `chroma/` used by Mem0) |",
+                "Keep `claude-memory` as the external product name. Use its actual MCP tools when available; otherwise preflight and use the `claude-memory` CLI.",
+                "- `claude-memory CLI or MCP`",
+                "- `local claude-memory services`",
+            }
+        ),
+        ("last30days", "SKILL.md"): frozenset(
+            {
+                "Use the directory containing this loaded `SKILL.md` as `SKILL_DIR`. Confirm `scripts/last30days.py` exists directly beneath it. Do not probe or execute historical Claude plugin/cache installations.",
+                '1. **TOPIC**: What they want to learn about (e.g., "web app mockups", "Claude Code skills", "image generation")',
+                "Examples: Sam Altman -> @OpenAI, Dario Amodei -> @AnthropicAI, OpenClaw -> @steipete (Peter Steinberger), Paperclip -> @dotta, Claude Code -> @alexalbert__.",
+                "| `ai_coding_agent` | Claude Code, Cursor IDE, GitHub Copilot, Windsurf, Aider, Cline, OpenClaw, Hermes Agent, Continue.dev, Codeium, Devin | `ChatGPTCoding, LocalLLaMA, singularity, PromptEngineering` |",
+                "| `ai_chat_model` | GPT-5/4, Claude Opus/Sonnet/Haiku, Gemini Pro/Flash, Llama 3/4, DeepSeek, Qwen, Mistral Large, Grok | `LocalLLaMA, ChatGPT, ClaudeAI, singularity, artificial` |",
+                '- **Hashtags:** Infer 2-3 from the topic name + category. Examples: "Kanye West" → `kanyewest,ye,bully`. "Claude Code" → `claudecode,aiagent,aicoding`. "Sam Altman" → `samaltman,openai,chatgpt`.',
+                "| **Sam Altman vs Dario** | 2 (subreddit + AI CEO news) | `artificial,MachineLearning,OpenAI,ClaudeAI` | `samaltman,openai,anthropic` | (skip - CEOs don't TikTok) | (skip - CEOs don't Reel) | `sam altman interview 2026,dario amodei interview 2026` |",
+                '- **Exact product/tool names** mentioned (e.g., if research mentions "ClawdBot" or "@clawdbot", that\'s a DIFFERENT product than "Claude Code" - don\'t conflate them)',
+                '**ANTI-PATTERN TO AVOID**: If user asks about "clawdbot skills" and research returns ClawdBot content (self-hosted AI agent), do NOT synthesize this as "Claude Code skills" just because both involve "skills". Read what the research actually says.',
+                "**NEVER write a title line at the top of your response.** No `Kanye West: last 30 days`, no `Claude Opus 4.7 - what people are actually saying`, no `{Topic} news`. Your response begins with the MANDATORY badge on line 1, one blank line, then the prose label `What I learned:` on line 3, and goes straight into the narrative.",
+            }
+        ),
+        ("skills-librarian", "SKILL.md"): frozenset(
+            {
+                "   `AGENTS-CATALOG.md`. **Mirror repo:** `bbrysonelite-max/claude-skills` (private).",
+                "Historical Claude session or library data may be inspected only as read-only input.",
+            }
+        ),
+    }
+)
 
 _LAST30DAYS_CODEX_INSTALL = (
     "# STEP 0: CODEX INSTALL SELF-CHECK\n\n"
@@ -336,9 +459,19 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ),
     ("context-keeper", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 5, ".codex/sessions"),
+        ExpectedRewrite(
+            re.compile(re.escape("AGENTS.md/CLAUDE.md/SACRED_WIRING.md")),
+            1,
+            "AGENTS.md/SACRED_WIRING.md",
+        ),
     ),
     ("closing-ritual", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 1, ".codex/sessions"),
+        ExpectedRewrite(
+            re.compile(re.escape("CLAUDE.md / AGENTS.md / GROUND_TRUTH-style")),
+            1,
+            "AGENTS.md / GROUND_TRUTH-style",
+        ),
         ExpectedRewrite(
             re.compile(r"\bTodoWrite\b"), 1, "Codex task checklist"
         ),
@@ -346,10 +479,20 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ("doc-keeper", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 2, ".codex/sessions"),
         ExpectedRewrite(re.compile(r"Agent\("), 1),
+        ExpectedRewrite(
+            re.compile(re.escape("`CLAUDE.md`, `AGENTS.md`, ")),
+            1,
+            "`AGENTS.md`, ",
+        ),
     ),
     ("tiger-doc-keeper", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 2, ".codex/sessions"),
         ExpectedRewrite(re.compile(r"Agent\("), 1),
+        ExpectedRewrite(
+            re.compile(re.escape("AGENTS.md, RULES.md, CLAUDE.md, SACRED_WIRING.md")),
+            1,
+            "AGENTS.md, RULES.md, SACRED_WIRING.md",
+        ),
     ),
     ("page-rethink", "SKILL.md"): (
         ExpectedRewrite(
@@ -383,7 +526,7 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
                 "`--limit N` to mine only the N most recent valid session files across "
                 "all roots. Use the original "
                 "`scripts/digest.py` only for deliberate read-only analysis of historical "
-                "Claude transcripts.\n"
+                "assistant transcripts.\n"
                 "2. **Establish what already exists**"
             ),
         ),
@@ -427,6 +570,13 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
                 "--context-dir <project-root>/.codex/sessions  # analyze batches "
                 "directly (see REFERENCE.md)"
             ),
+        ),
+    ),
+    ("skill-miner", "BACKLOG.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("SOTU/NEXT_SESSION/CLAUDE/AGENTS")),
+            1,
+            "SOTU/NEXT_SESSION/AGENTS/project docs",
         ),
     ),
     ("skill-miner", "DESCRIPTION"): (
@@ -574,6 +724,36 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ),
     ("vault-hygiene", "SKILL.md"): (
         ExpectedRewrite(
+            re.compile(re.escape("`SPEC.md` > `CLAUDE.md` > everything else")),
+            1,
+            "`SPEC.md` > `AGENTS.md` > everything else",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("`index.md`, `CLAUDE.md`, `SPEC.md`")),
+            1,
+            "`index.md`, `AGENTS.md`, `SPEC.md`",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("`SPEC.md` vs `CLAUDE.md`")),
+            1,
+            "`SPEC.md` vs `AGENTS.md`",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("SPEC.md and CLAUDE.md disagree")),
+            1,
+            "SPEC.md and AGENTS.md disagree",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("update CLAUDE.md if they disagree")),
+            1,
+            "update AGENTS.md if they disagree",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("update CLAUDE.md to match SPEC.md")),
+            1,
+            "update AGENTS.md to match SPEC.md",
+        ),
+        ExpectedRewrite(
             re.compile(
                 r"(?ms)^### Phase 5: Memory Staleness Audit\n.*?"
                 r"^### Phase 6: Context Drift Detection$"
@@ -598,6 +778,11 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ),
     ),
     ("claude-memory-index", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("python scripts/claude_memory_indexer.py")),
+            2,
+            "claude-memory index",
+        ),
         ExpectedRewrite(
             re.compile(re.escape("~/.claude/claude_desktop_config.json")),
             1,
@@ -648,6 +833,11 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ),
     ("gitnexus-cli", "SKILL.md"): (
         ExpectedRewrite(
+            re.compile(re.escape("generates CLAUDE.md / AGENTS.md context files")),
+            1,
+            "generates AGENTS.md context files",
+        ),
+        ExpectedRewrite(
             re.compile(re.escape("Restart Claude Code")),
             1,
             "Restart the active Codex session",
@@ -665,6 +855,25 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ),
     ),
     ("last30days", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "(Claude Code, Codex, Hermes, Gemini, or any agent runtime"
+                )
+            ),
+            1,
+            "(Codex, Hermes, Gemini, or any agent runtime",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("Claude Code renders `[text](url)`")),
+            1,
+            "The current Markdown renderer displays `[text](url)`",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("platform detection (OpenClaw vs Claude Code)")),
+            1,
+            "current runtime detection",
+        ),
         ExpectedRewrite(
             re.compile(re.escape("$HOME/.claude/plugins/cache/")), 3
         ),
@@ -752,6 +961,31 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ExpectedRewrite(re.compile(r"\bWebSearches\b"), 7, "web searches"),
         ExpectedRewrite(re.compile(r"\bWebSearch\b"), 85, "Codex web search"),
     ),
+    ("last30days", "references/save-html-brief.md"): (
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    'SYNTHESIS_FILE="/tmp/last30days-synthesis-${CLAUDE_SESSION_ID}.md"'
+                )
+            ),
+            1,
+            'SYNTHESIS_FILE="/tmp/last30days-synthesis-$$.md"',
+        ),
+    ),
+    ("ship-it", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("from AGENTS.md / CLAUDE.md")),
+            1,
+            "from AGENTS.md and repository instructions",
+        ),
+    ),
+    ("here-now", "references/REFERENCE.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("X-HereNow-Client: claude-code/publish-sh")),
+            1,
+            "X-HereNow-Client: codex/publish-sh",
+        ),
+    ),
 }
 
 
@@ -784,6 +1018,17 @@ def validate_generated_markdown(
     """Reject Claude-only operational instructions in generated Markdown."""
     normalized_path = str(relative_path).replace("\\", "/")
     candidate = _normalize_newlines(text)
+    allowed_claude_lines = _ALLOWED_CLAUDE_LINES.get(
+        (skill_name, normalized_path), frozenset()
+    )
+    for line_number, line in enumerate(candidate.splitlines(), start=1):
+        if _CLAUDE_REFERENCE.search(line) and line not in allowed_claude_lines:
+            raise ValueError(
+                f"{skill_name}/{normalized_path}:{line_number}: prohibited Markdown "
+                "Claude "
+                "runtime/client/environment reference outside the exact path-scoped "
+                f"allowlist: {line!r}"
+            )
     for allowed_text in _MARKDOWN_ALLOWLIST.get(
         (skill_name, normalized_path), ()
     ):
@@ -1045,14 +1290,14 @@ def _runtime_details(skill_name: str) -> list[str]:
                 "`--context-dir <project-root>/.codex/sessions` arguments for explicit "
                 "project-local context snapshots. Use the original copied "
                 "`scripts/digest.py` only for deliberate read-only analysis of historical "
-                "Claude transcripts."
+                "assistant transcripts."
             )
         if skill_name == "skills-librarian":
             details.extend(
                 (
                     "Set `SKILLS_DIR=~/.codex/skills` when invoking copied audit or "
                     "backup helpers so their preserved source defaults cannot select a "
-                    "Claude shelf.",
+                    "legacy shelf.",
                     "Set `AGENTS_DIR=~/.agents` for current Codex agent definitions.",
                     "Set `AGENTS_SRC=~/.agents` when invoking the copied backup helper "
                     "so it mirrors those definitions.",
@@ -1092,7 +1337,7 @@ def _runtime_details(skill_name: str) -> list[str]:
     if skill_name in _CROSS_SKILL_PATHS:
         details.append(
             "Resolve sibling Codex skills from installed skill roots (including "
-            "`~/.codex/skills`) or the current collection; do not assume a Claude skill root."
+            "`~/.codex/skills`) or the current collection; do not assume a legacy skill root."
         )
     return details
 

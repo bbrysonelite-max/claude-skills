@@ -21,7 +21,7 @@ The contract: the synthesis still appears in chat as the primary output. The HTM
 #    Use the EXACT text you just wrote in chat. Do not paraphrase, do not
 #    summarize, do not reorder. The HTML must read identically to the chat
 #    response in voice and citations.
-SYNTHESIS_FILE="/tmp/last30days-synthesis-${CLAUDE_SESSION_ID}.md"
+SYNTHESIS_FILE="/tmp/last30days-synthesis-$$.md"
 cat > "$SYNTHESIS_FILE" <<'SYNTHESIS_EOF'
 What I learned:
 

@@ -10,7 +10,7 @@ Seeded from the 2026-06-28 transcript-mining pass (45 sessions, May 28–Jun 28;
 |---|---|---|---|---|---|
 | ship-it | built | High | 2026-06-28 | nearly every session (all 3 batches) | merge→CI→Cloud Run deploy→/health-SHA verify; merge gated on --confirm |
 | skill-miner | built | High | 2026-06-28 | this pass + the meta-idea | this skill — mine sessions → suggest candidates |
-| session-grounding | proposed | High | 2026-06-28 | opens ~every session (b1,b2,b3) | read SOTU/NEXT_SESSION/CLAUDE/AGENTS → ground truth → narrate last 24–48h in his words |
+| session-grounding | proposed | High | 2026-06-28 | opens ~every session (b1,b2,b3) | read SOTU/NEXT_SESSION/AGENTS/project docs → ground truth → narrate last 24–48h in his words |
 | verify-prior-work | proposed | High | 2026-06-28 | b3 (multiple) | read-only audit that a PRIOR session's claimed work shipped & works live (Playwright), not from "the shape" |
 | tenant-isolation-audit | proposed | High | 2026-06-28 | b2 (Debbie leak) | detect cross-tenant fact/lead leak, blast radius read-only, surgical repair |
 | youtube-thumbnail | proposed | Med | 2026-06-28 | b3 (repeatedly asked) | deterministic on-brand YouTube thumbnail maker |
