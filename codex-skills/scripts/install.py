@@ -42,6 +42,8 @@ AT_FDCWD = -100
 class InstallResult:
     created: tuple[str, ...] = ()
     updated: tuple[str, ...] = ()
+    planned_created: tuple[str, ...] = ()
+    planned_updated: tuple[str, ...] = ()
     unchanged: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     collisions: tuple[str, ...] = ()
@@ -57,6 +59,8 @@ class InstallResult:
             "ok": self.ok,
             "created": list(self.created),
             "updated": list(self.updated),
+            "planned_created": list(self.planned_created),
+            "planned_updated": list(self.planned_updated),
             "unchanged": list(self.unchanged),
             "skipped": list(self.skipped),
             "collisions": list(self.collisions),
@@ -84,8 +88,8 @@ class _Plan:
 
     def result(self, *, errors: tuple[str, ...] | None = None) -> InstallResult:
         return InstallResult(
-            created=self.created,
-            updated=self.updated,
+            planned_created=self.created,
+            planned_updated=self.updated,
             unchanged=self.unchanged,
             skipped=self.skipped,
             collisions=self.collisions,
@@ -108,9 +112,28 @@ class _AppliedLink:
 
 
 @dataclass(frozen=True)
+class _OwnedPath:
+    path: Path
+    identity: tuple[int, int, int]
+    target: str | None = None
+
+
+@dataclass(frozen=True)
 class _MutationOutcome:
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
+
+
+class _ManualRecoveryError(OSError):
+    def __init__(
+        self,
+        message: str,
+        material: Path,
+        material_identity: tuple[int, int, int],
+    ) -> None:
+        super().__init__(message)
+        self.material = material
+        self.material_identity = material_identity
 
 
 def _lexists(path: Path) -> bool:
@@ -168,10 +191,26 @@ def _source_preflight(collection: Path) -> _Source:
     return _Source(source, repository, names)
 
 
+def _allowed_system_alias(path: Path) -> bool:
+    if sys.platform != "darwin":
+        return False
+    expected = {
+        Path("/tmp"): Path("/private/tmp"),
+        Path("/var"): Path("/private/var"),
+    }.get(path)
+    if expected is None:
+        return False
+    try:
+        raw_target = Path(os.readlink(path))
+    except OSError:
+        return False
+    lexical_target = raw_target if raw_target.is_absolute() else path.parent / raw_target
+    return Path(os.path.normpath(lexical_target)) == expected
+
+
 def _symlink_ancestor_error(path: Path) -> str | None:
     absolute = path if path.is_absolute() else Path.cwd() / path
     current = Path(absolute.anchor)
-    user_controlled = False
     for part in absolute.parts[1:-1]:
         current /= part
         if not _lexists(current):
@@ -181,11 +220,9 @@ def _symlink_ancestor_error(path: Path) -> str | None:
         except OSError as error:
             return f"destination ancestor cannot be inspected: {current}: {error}"
         if current.is_symlink():
-            if user_controlled:
-                return f"destination has a symlinked ancestor: {current}"
-            continue
-        if info.st_uid == os.getuid() and current != Path(absolute.anchor):
-            user_controlled = True
+            if _allowed_system_alias(current):
+                continue
+            return f"destination has a symlinked ancestor: {current}"
     return None
 
 
@@ -320,12 +357,38 @@ def _path_identity(path: Path) -> tuple[int, int, int]:
     return info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
 
 
+def _open_destination(destination: Path) -> tuple[int, tuple[int, int, int]]:
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(destination, flags)
+    info = os.fstat(descriptor)
+    identity = info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
+    if identity[2] != stat.S_IFDIR or _path_identity(destination) != identity:
+        os.close(descriptor)
+        raise OSError(f"destination changed while opening: {destination}")
+    return descriptor, identity
+
+
+def _verify_open_destination(
+    destination: Path,
+    descriptor: int,
+    identity: tuple[int, int, int],
+) -> None:
+    info = os.fstat(descriptor)
+    opened_identity = info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
+    if (
+        opened_identity != identity
+        or destination.is_symlink()
+        or _path_identity(destination) != identity
+    ):
+        raise OSError(f"opened destination was replaced: {destination}")
+
+
 def _create_symlink_exclusive(
     source: Path,
     destination: Path,
     name: str,
     kind: str,
-    owned_paths: list[Path],
+    owned_paths: list[_OwnedPath],
 ) -> Path:
     return _create_raw_symlink_exclusive(
         str(source.resolve(strict=True)), destination, name, kind, owned_paths
@@ -337,7 +400,7 @@ def _create_raw_symlink_exclusive(
     destination: Path,
     name: str,
     kind: str,
-    owned_paths: list[Path],
+    owned_paths: list[_OwnedPath],
 ) -> Path:
     for _ in range(TEMP_ATTEMPTS):
         candidate = _temporary_path(destination, name, kind)
@@ -345,7 +408,9 @@ def _create_raw_symlink_exclusive(
             os.symlink(target, candidate, target_is_directory=True)
         except FileExistsError:
             continue
-        owned_paths.append(candidate)
+        if not candidate.is_symlink() or os.readlink(candidate) != target:
+            raise OSError(f"exclusive {kind} link was substituted: {candidate}")
+        owned_paths.append(_OwnedPath(candidate, _path_identity(candidate), target))
         return candidate
     raise FileExistsError(
         errno.EEXIST,
@@ -358,7 +423,10 @@ def _create_hardlink_exclusive(
     destination: Path,
     name: str,
     kind: str,
-    owned_paths: list[Path],
+    owned_paths: list[_OwnedPath],
+    *,
+    expected_identity: tuple[int, int, int],
+    expected_target: str | None,
 ) -> Path:
     for _ in range(TEMP_ATTEMPTS):
         candidate = _temporary_path(destination, name, kind)
@@ -366,7 +434,25 @@ def _create_hardlink_exclusive(
             os.link(source, candidate, follow_symlinks=False)
         except FileExistsError:
             continue
-        owned_paths.append(candidate)
+        candidate_identity = _path_identity(candidate)
+        if candidate_identity == expected_identity:
+            owned_paths.append(
+                _OwnedPath(
+                    candidate,
+                    candidate_identity,
+                    expected_target,
+                )
+            )
+        else:
+            source_identity = _path_identity(source)
+            if candidate_identity == source_identity:
+                owned_paths.append(_OwnedPath(candidate, candidate_identity))
+            raise OSError(f"exclusive {kind} hard link has unexpected identity")
+        if expected_target is not None and (
+            not candidate.is_symlink()
+            or os.readlink(candidate) != expected_target
+        ):
+            raise OSError(f"exclusive {kind} hard link has unexpected target")
         return candidate
     raise FileExistsError(
         errno.EEXIST,
@@ -378,15 +464,34 @@ def _prepare_ready_link(
     source: Path,
     destination: Path,
     name: str,
-    owned_paths: list[Path],
+    owned_paths: list[_OwnedPath],
 ) -> Path:
+    expected_target = str(source.resolve(strict=True))
     stage = _create_symlink_exclusive(
         source, destination, name, "stage", owned_paths
     )
+    stage_identity = _path_identity(stage)
+    if not stage.is_symlink() or os.readlink(stage) != expected_target:
+        raise OSError(f"stage link was substituted before hard-linking: {stage}")
     ready = _create_hardlink_exclusive(
-        stage, destination, name, "ready", owned_paths
+        stage,
+        destination,
+        name,
+        "ready",
+        owned_paths,
+        expected_identity=stage_identity,
+        expected_target=expected_target,
     )
-    stage.unlink()
+    if (
+        _path_identity(stage) != stage_identity
+        or not stage.is_symlink()
+        or os.readlink(stage) != expected_target
+        or _path_identity(ready) != stage_identity
+        or not ready.is_symlink()
+        or os.readlink(ready) != expected_target
+    ):
+        raise OSError(f"stage or ready link was substituted for {name}")
+    _cleanup_owned_path(_owned_record(owned_paths, stage))
     return ready
 
 
@@ -441,11 +546,95 @@ def _publish_without_overwrite(ready: Path, destination: Path) -> None:
     os.link(ready, destination, follow_symlinks=False)
 
 
-def _cleanup_path(path: Path) -> None:
-    if path.is_symlink():
-        path.unlink()
-    elif _lexists(path):
-        raise OSError(f"refusing to clean non-symlink temporary path: {path}")
+def _cleanup_owned_path(owned: _OwnedPath) -> None:
+    if not _lexists(owned.path):
+        return
+    if _path_identity(owned.path) != owned.identity:
+        raise OSError(f"refusing to clean substituted temporary path: {owned.path}")
+    if owned.target is not None and (
+        not owned.path.is_symlink()
+        or os.readlink(owned.path) != owned.target
+    ):
+        raise OSError(f"refusing to clean retargeted temporary path: {owned.path}")
+    owned.path.unlink()
+
+
+def _owned_record(owned_paths: list[_OwnedPath], path: Path) -> _OwnedPath:
+    for owned in reversed(owned_paths):
+        if owned.path == path:
+            return owned
+    raise OSError(f"temporary path has no ownership record: {path}")
+
+
+def _retag_owned_path(owned_paths: list[_OwnedPath], path: Path) -> None:
+    for index in range(len(owned_paths) - 1, -1, -1):
+        if owned_paths[index].path != path:
+            continue
+        identity = _path_identity(path)
+        target = os.readlink(path) if path.is_symlink() else None
+        owned_paths[index] = _OwnedPath(path, identity, target)
+        return
+    raise OSError(f"temporary path has no ownership record: {path}")
+
+
+def _matches_symlink(
+    path: Path,
+    identity: tuple[int, int, int],
+    target: str,
+) -> bool:
+    try:
+        return (
+            path.is_symlink()
+            and _path_identity(path) == identity
+            and os.readlink(path) == target
+        )
+    except OSError:
+        return False
+
+
+def _cleanup_owned_paths(
+    owned_paths: list[_OwnedPath],
+    retained: set[tuple[Path, tuple[int, int, int]]],
+    errors: list[str],
+) -> BaseException | None:
+    pending: BaseException | None = None
+    remaining = list(reversed(owned_paths))
+    reported: set[Path] = set()
+    for _ in range(2):
+        retry: list[_OwnedPath] = []
+        for owned in remaining:
+            if (owned.path, owned.identity) in retained:
+                continue
+            try:
+                _cleanup_owned_path(owned)
+            except BaseException as cleanup_error:
+                if isinstance(cleanup_error, Exception):
+                    if owned.path not in reported:
+                        errors.append(
+                            f"temporary cleanup failed for {owned.path}: "
+                            f"{cleanup_error}"
+                        )
+                        reported.add(owned.path)
+                elif pending is None:
+                    pending = cleanup_error
+                try:
+                    if (
+                        _lexists(owned.path)
+                        and _path_identity(owned.path) == owned.identity
+                    ):
+                        retry.append(owned)
+                except BaseException as inspection_error:
+                    if isinstance(inspection_error, Exception):
+                        errors.append(
+                            f"temporary cleanup inspection failed for {owned.path}: "
+                            f"{inspection_error}"
+                        )
+                    elif pending is None:
+                        pending = inspection_error
+        remaining = retry
+        if not remaining:
+            break
+    return pending
 
 
 def _exchange_restore(
@@ -453,11 +642,11 @@ def _exchange_restore(
     material: Path,
     material_identity: tuple[int, int, int],
 ) -> None:
-    last_error: OSError | RuntimeError | None = None
+    last_error: Exception | None = None
     for _ in range(2):
         try:
             _atomic_exchange(item.path, material)
-        except (OSError, RuntimeError) as error:
+        except Exception as error:
             last_error = error
             if _path_identity(item.path) == material_identity:
                 return
@@ -466,34 +655,35 @@ def _exchange_restore(
                 or _path_identity(item.path) != item.new_identity
                 or _path_identity(material) != material_identity
             ):
-                raise OSError(
-                    f"rollback paths changed during atomic exchange for {item.name}"
+                raise _ManualRecoveryError(
+                    f"manual recovery required for {item.name}: destination or "
+                    f"rollback material changed; preserved material at {material}",
+                    material,
+                    material_identity,
                 ) from error
             continue
         if _path_identity(item.path) == material_identity:
             return
         raise OSError(f"atomic rollback verification failed for {item.name}")
 
-    if (
-        not item.path.is_symlink()
-        or _path_identity(item.path) != item.new_identity
-        or _path_identity(material) != material_identity
-    ):
-        raise OSError(f"refusing guarded rollback replacement for {item.name}")
-    try:
-        os.replace(material, item.path)
-    except OSError as error:
-        raise OSError(f"guarded rollback replacement failed for {item.name}") from error
-    if _path_identity(item.path) != material_identity:
-        raise OSError(f"guarded rollback verification failed for {item.name}") from last_error
+    raise _ManualRecoveryError(
+        f"manual recovery required for {item.name}: atomic rollback failed; "
+        f"preserved material at {material}: {last_error}",
+        material,
+        material_identity,
+    ) from last_error
 
 
 def _rollback_links(
     applied: list[_AppliedLink],
     errors: list[str],
-    owned_paths: list[Path],
-) -> None:
+    owned_paths: list[_OwnedPath],
+    retained: set[tuple[Path, tuple[int, int, int]]],
+) -> BaseException | None:
+    pending: BaseException | None = None
     for item in reversed(applied):
+        material: Path | None = None
+        material_identity: tuple[int, int, int] | None = None
         try:
             if item.operation == "created":
                 if (
@@ -513,8 +703,6 @@ def _rollback_links(
             if current_identity != item.new_identity or not item.path.is_symlink():
                 raise OSError(f"installed path changed before rollback: {item.path}")
 
-            material: Path | None = None
-            material_identity: tuple[int, int, int] | None = None
             expected_target: str | None = None
             if (
                 item.displaced is not None
@@ -555,31 +743,56 @@ def _rollback_links(
 
             assert material_identity is not None
             _exchange_restore(item, material, material_identity)
+            try:
+                _owned_record(owned_paths, material)
+            except OSError:
+                pass
+            else:
+                _retag_owned_path(owned_paths, material)
             if expected_target is not None and (
                 not item.path.is_symlink()
                 or os.readlink(item.path) != expected_target
             ):
                 raise OSError(f"rollback target verification failed for {item.name}")
-        except (OSError, RuntimeError) as rollback_error:
+        except _ManualRecoveryError as rollback_error:
+            retained.add(
+                (rollback_error.material, rollback_error.material_identity)
+            )
             errors.append(f"rollback failed for {item.name}: {rollback_error}")
+        except BaseException as rollback_error:
+            if material is not None and material_identity is not None:
+                retained.add((material, material_identity))
+            if isinstance(rollback_error, Exception):
+                errors.append(f"rollback failed for {item.name}: {rollback_error}")
+            elif pending is None:
+                pending = rollback_error
+    return pending
 
 
 def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOutcome:
     created_directories: list[Path] = []
-    owned_paths: list[Path] = []
-    recovery_paths: list[Path] = []
+    owned_paths: list[_OwnedPath] = []
     applied: list[_AppliedLink] = []
     previous = dict(plan.previous_links)
     errors: list[str] = []
+    retained: set[tuple[Path, tuple[int, int, int]]] = set()
+    pending: BaseException | None = None
+    destination_descriptor: int | None = None
+    destination_identity: tuple[int, int, int] | None = None
     committed = False
     try:
         _create_destination(destination, created_directories)
         if destination.is_symlink() or not destination.is_dir():
             raise OSError(f"destination became unsafe: {destination}")
+        destination_descriptor, destination_identity = _open_destination(destination)
         for name in sorted((*plan.created, *plan.updated)):
+            _verify_open_destination(
+                destination, destination_descriptor, destination_identity
+            )
             path = destination / name
             operation = "created" if name in plan.created else "updated"
             old_target = previous.get(name)
+            expected_target = str((source.root / name).resolve(strict=True))
             if operation == "created":
                 if _lexists(path):
                     raise OSError(f"destination changed during install: {path}")
@@ -587,35 +800,52 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                     source.root / name, destination, name, owned_paths
                 )
                 new_identity = _path_identity(ready)
+                if not _matches_symlink(ready, new_identity, expected_target):
+                    raise OSError(f"ready link was substituted before publish: {ready}")
+                _verify_open_destination(
+                    destination, destination_descriptor, destination_identity
+                )
                 try:
                     _publish_without_overwrite(ready, path)
-                except (OSError, RuntimeError):
-                    if (
-                        path.is_symlink()
-                        and _path_identity(path) == new_identity
-                    ):
+                except BaseException:
+                    if _matches_symlink(path, new_identity, expected_target):
                         applied.append(
                             _AppliedLink(name, operation, path, new_identity)
                         )
                     raise
+                if not _matches_symlink(path, new_identity, expected_target):
+                    raise OSError(f"published link was substituted: {path}")
                 applied.append(
                     _AppliedLink(name, operation, path, new_identity)
                 )
-                ready.unlink()
+                _cleanup_owned_path(_owned_record(owned_paths, ready))
                 continue
 
             if not path.is_symlink() or os.readlink(path) != old_target:
                 raise OSError(f"managed link changed during install: {path}")
             old_identity = _path_identity(path)
             backup = _create_hardlink_exclusive(
-                path, destination, name, "backup", owned_paths
+                path,
+                destination,
+                name,
+                "backup",
+                owned_paths,
+                expected_identity=old_identity,
+                expected_target=old_target,
             )
-            if _path_identity(backup) != old_identity:
+            if (
+                _path_identity(path) != old_identity
+                or not path.is_symlink()
+                or os.readlink(path) != old_target
+                or _path_identity(backup) != old_identity
+            ):
                 raise OSError(f"managed link changed while backing up: {path}")
             ready = _prepare_ready_link(
                 source.root / name, destination, name, owned_paths
             )
             new_identity = _path_identity(ready)
+            if not _matches_symlink(ready, new_identity, expected_target):
+                raise OSError(f"ready link was substituted before exchange: {ready}")
             item = _AppliedLink(
                 name,
                 operation,
@@ -625,14 +855,18 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                 old_identity=old_identity,
                 backup=backup,
             )
-            exchange_error: OSError | RuntimeError | None = None
+            _verify_open_destination(
+                destination, destination_descriptor, destination_identity
+            )
+            exchange_error: BaseException | None = None
             try:
                 _atomic_exchange(path, ready)
-            except (OSError, RuntimeError) as error:
+            except BaseException as error:
                 exchange_error = error
-            if path.is_symlink() and _path_identity(path) == new_identity:
+            if _matches_symlink(path, new_identity, expected_target):
                 item.displaced = ready
                 item.displaced_identity = _path_identity(ready)
+                _retag_owned_path(owned_paths, ready)
                 applied.append(item)
             elif exchange_error is not None:
                 raise exchange_error
@@ -645,9 +879,17 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                 or not ready.is_symlink()
                 or os.readlink(ready) != old_target
             ):
-                _atomic_exchange(path, ready)
+                exchange_back_error: BaseException | None = None
+                try:
+                    _atomic_exchange(path, ready)
+                except BaseException as error:
+                    exchange_back_error = error
+                if _matches_symlink(ready, new_identity, expected_target):
+                    _retag_owned_path(owned_paths, ready)
+                if exchange_back_error is not None:
+                    raise exchange_back_error
                 raise OSError(f"managed link changed during atomic exchange: {path}")
-            ready.unlink()
+            _cleanup_owned_path(_owned_record(owned_paths, ready))
 
         updates = [item for item in applied if item.operation == "updated"]
         for item in updates:
@@ -657,32 +899,58 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                 destination,
                 item.name,
                 "recovery",
-                recovery_paths,
+                owned_paths,
+                expected_identity=item.old_identity,
+                expected_target=item.old_target,
             )
         for item in updates:
             assert item.backup is not None
-            item.backup.unlink()
+            _cleanup_owned_path(_owned_record(owned_paths, item.backup))
         for item in updates:
             assert item.recovery is not None
-            item.recovery.unlink()
+            _cleanup_owned_path(_owned_record(owned_paths, item.recovery))
         committed = True
-    except (OSError, RuntimeError) as error:
-        errors.append(f"installation mutation failed: {error}")
-        _rollback_links(applied, errors, owned_paths)
+    except BaseException as error:
+        if isinstance(error, Exception):
+            errors.append(f"installation mutation failed: {error}")
+        else:
+            pending = error
+        rollback_pending = _rollback_links(
+            applied,
+            errors,
+            owned_paths,
+            retained,
+        )
+        if pending is None:
+            pending = rollback_pending
     finally:
         if not committed:
-            for path in reversed((*owned_paths, *recovery_paths)):
-                try:
-                    _cleanup_path(path)
-                except (OSError, RuntimeError) as cleanup_error:
-                    errors.append(
-                        f"temporary cleanup failed for {path}: {cleanup_error}"
-                    )
+            cleanup_pending = _cleanup_owned_paths(
+                owned_paths, retained, errors
+            )
+            if pending is None:
+                pending = cleanup_pending
             for directory in reversed(created_directories):
                 try:
                     directory.rmdir()
-                except OSError:
-                    pass
+                except BaseException as cleanup_error:
+                    if isinstance(cleanup_error, Exception):
+                        errors.append(
+                            f"destination cleanup failed for {directory}: "
+                            f"{cleanup_error}"
+                        )
+                    elif pending is None:
+                        pending = cleanup_error
+        if destination_descriptor is not None:
+            try:
+                os.close(destination_descriptor)
+            except BaseException as close_error:
+                if isinstance(close_error, Exception):
+                    errors.append(f"destination close failed: {close_error}")
+                elif pending is None:
+                    pending = close_error
+    if pending is not None:
+        raise pending
     return _MutationOutcome(tuple(errors), ())
 
 
@@ -718,6 +986,8 @@ def install(
     outcome = _apply_plan(source, target, plan)
     if outcome.errors:
         return InstallResult(
+            planned_created=plan.created,
+            planned_updated=plan.updated,
             unchanged=plan.unchanged,
             skipped=plan.skipped,
             collisions=plan.collisions,
@@ -727,6 +997,8 @@ def install(
     return InstallResult(
         created=plan.created,
         updated=plan.updated,
+        planned_created=plan.created,
+        planned_updated=plan.updated,
         unchanged=plan.unchanged,
         skipped=plan.skipped,
         collisions=plan.collisions,
@@ -752,8 +1024,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
     else:
         print(
-            f"Created {len(result.created)}, updated {len(result.updated)}, "
+            f"Applied: created {len(result.created)}, updated {len(result.updated)}; "
             f"unchanged {len(result.unchanged)}, skipped {len(result.skipped)}."
+        )
+        print(
+            f"Planned: create {len(result.planned_created)}, "
+            f"update {len(result.planned_updated)}."
         )
         for name in result.collisions:
             print(f"Collision: {name}", file=sys.stderr)
