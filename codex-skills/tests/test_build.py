@@ -20,6 +20,7 @@ from scripts.common import (
     Manifest,
     SkillEntry,
     hash_protected_sources,
+    load_manifest,
     parse_skill_document,
     render_skill_document,
 )
@@ -27,6 +28,24 @@ from scripts.common import (
 
 CODEX_SKILLS_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = CODEX_SKILLS_ROOT.parent
+
+REQUIRED_OVERRIDE_NAMES = frozenset(
+    {
+        "context-keeper",
+        "doc-keeper",
+        "gws-shared",
+        "gws-workflow",
+        "gws-workflow-email-to-task",
+        "gws-workflow-file-announce",
+        "gws-workflow-meeting-prep",
+        "gws-workflow-standup-report",
+        "gws-workflow-weekly-digest",
+        "page-rethink",
+        "skill-miner",
+        "skills-librarian",
+        "tiger-doc-keeper",
+    }
+)
 
 
 def entry(name="sample", output=None):
@@ -718,6 +737,368 @@ class BuildTests(unittest.TestCase):
             elif path.is_dir():
                 snapshot[relative] = "directory"
         return snapshot
+
+
+class BuildOverrideTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = tempfile.TemporaryDirectory()
+        self.output_parent = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.repository.name)
+        self.output = Path(self.output_parent.name) / "skills"
+
+    def tearDown(self):
+        self.output_parent.cleanup()
+        self.repository.cleanup()
+
+    def make_source(
+        self,
+        name="context-keeper",
+        description="Current .claude/sessions/ workflow.",
+    ):
+        source = self.repo_root / name
+        source.mkdir(parents=True)
+        (source / "SKILL.md").write_text(
+            f'---\nname: "{name}"\ndescription: "{description}"\n---\n\n'
+            f"# {name}\n\nSource workflow.\n",
+            encoding="utf-8",
+        )
+        return source
+
+    def make_override(
+        self,
+        name="context-keeper",
+        description="Current .codex/sessions/ workflow.",
+        override_name=None,
+        body="Override workflow.",
+    ):
+        override = self.repo_root / "codex-skills" / "overrides" / name
+        override.mkdir(parents=True)
+        document_name = override_name or name
+        (override / "SKILL.md").write_text(
+            f'---\nname: "{document_name}"\ndescription: "{description}"\n---\n\n'
+            f"# {document_name}\n\n"
+            "## Codex Runtime\n\n"
+            "- **Dependencies:** None.\n"
+            "- **Execution:** Operate directly in the main Codex agent.\n"
+            "- Never print, log, or expose secret values.\n\n"
+            "## Inputs and Preflight\n\n1. Confirm the target.\n\n"
+            "## Procedure\n\n1. Inspect evidence.\n2. Complete the workflow.\n\n"
+            "## Safety and Errors\n\nStop and report blocked work.\n\n"
+            f"## Output Contract\n\n{body}\n",
+            encoding="utf-8",
+        )
+        return override
+
+    def context_entry(self):
+        return SkillEntry(
+            source="context-keeper",
+            promoted_from=None,
+            output="context-keeper",
+            conversion="adapted",
+            dependencies=(),
+            notes="Writes Codex sessions.",
+        )
+
+    def test_missing_required_override_is_rejected(self):
+        self.make_source()
+
+        with self.assertRaisesRegex(ValueError, "missing required override.*context-keeper"):
+            build_collection(
+                self.repo_root, manifest(self.context_entry()), self.output
+            )
+
+    def test_override_replaces_only_skill_document_and_preserves_resources(self):
+        source = self.make_source()
+        script = source / "scripts" / "new-session.sh"
+        script.parent.mkdir()
+        script.write_text("#!/bin/sh\necho source\n", encoding="utf-8")
+        script.chmod(0o755)
+        override = self.make_override(body="OVERRIDE BODY")
+
+        build_collection(self.repo_root, manifest(self.context_entry()), self.output)
+
+        generated = self.output / "context-keeper"
+        expected = render_skill_document(
+            parse_skill_document((override / "SKILL.md").read_text(encoding="utf-8"))
+        ).encode()
+        self.assertEqual(expected, (generated / "SKILL.md").read_bytes())
+        self.assertIn("OVERRIDE BODY", (generated / "SKILL.md").read_text())
+        self.assertEqual(b"#!/bin/sh\necho source\n", (generated / "scripts/new-session.sh").read_bytes())
+        self.assertTrue((generated / "scripts/new-session.sh").stat().st_mode & stat.S_IXUSR)
+        self.assertEqual(0o644, stat.S_IMODE((generated / "SKILL.md").stat().st_mode))
+
+    def test_rejects_override_name_mismatch(self):
+        self.make_source()
+        self.make_override(override_name="wrong-name")
+
+        with self.assertRaisesRegex(ValueError, "override skill name.*does not match"):
+            build_collection(
+                self.repo_root, manifest(self.context_entry()), self.output
+            )
+
+    def test_rejects_malformed_override(self):
+        self.make_source()
+        override = self.make_override()
+        (override / "SKILL.md").write_text("not frontmatter\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "override.*context-keeper"):
+            build_collection(
+                self.repo_root, manifest(self.context_entry()), self.output
+            )
+
+    def test_rejects_override_for_non_override_output(self):
+        self.make_source("sample", "Sample workflow.")
+        self.make_override("sample", "Sample workflow.")
+
+        with self.assertRaisesRegex(ValueError, "undeclared override.*sample"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+
+    def test_rejects_known_override_absent_from_manifest(self):
+        self.make_source("sample", "Sample workflow.")
+        self.make_override()
+
+        with self.assertRaisesRegex(ValueError, "undeclared override.*context-keeper"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+
+    def test_rejects_override_description_semantic_drift(self):
+        self.make_source(description="Source .claude/sessions/ trigger semantics.")
+        self.make_override(description="Different trigger semantics.")
+
+        with self.assertRaisesRegex(ValueError, "override description.*source"):
+            build_collection(
+                self.repo_root, manifest(self.context_entry()), self.output
+            )
+
+    def test_rejects_override_dependency_contract_drift(self):
+        self.make_source()
+        override = self.make_override()
+        path = override / "SKILL.md"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "- **Dependencies:** None.",
+                "- **Dependencies:** invented dependency",
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "dependency contract"):
+            build_collection(
+                self.repo_root, manifest(self.context_entry()), self.output
+            )
+
+    def test_rejects_auxiliary_override_files(self):
+        self.make_source()
+        override = self.make_override()
+        (override / "README.md").write_text("extra\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "only SKILL.md"):
+            build_collection(
+                self.repo_root, manifest(self.context_entry()), self.output
+            )
+
+
+class RealOverrideContractTests(unittest.TestCase):
+    override_root = CODEX_SKILLS_ROOT / "overrides"
+
+    @classmethod
+    def documents(cls):
+        return {
+            name: parse_skill_document(
+                (cls.override_root / name / "SKILL.md").read_text(encoding="utf-8")
+            )
+            for name in REQUIRED_OVERRIDE_NAMES
+        }
+
+    def test_exactly_thirteen_required_overrides_exist(self):
+        actual = (
+            {path.name for path in self.override_root.iterdir() if path.is_dir()}
+            if self.override_root.is_dir()
+            else set()
+        )
+        self.assertEqual(REQUIRED_OVERRIDE_NAMES, actual)
+        for name in REQUIRED_OVERRIDE_NAMES:
+            with self.subTest(name=name):
+                files = sorted(
+                    path.relative_to(self.override_root / name).as_posix()
+                    for path in (self.override_root / name).rglob("*")
+                    if path.is_file()
+                )
+                self.assertEqual(["SKILL.md"], files)
+
+    def test_override_names_descriptions_and_standalone_sections(self):
+        collection = load_manifest(
+            CODEX_SKILLS_ROOT / "manifest.yaml", repo_root=REPOSITORY_ROOT
+        )
+        entries = {entry.output: entry for entry in collection.sources}
+        documents = self.documents()
+        required_sections = (
+            "## Codex Runtime",
+            "## Inputs and Preflight",
+            "## Procedure",
+            "## Safety and Errors",
+            "## Output Contract",
+        )
+        for name, document in documents.items():
+            with self.subTest(name=name):
+                entry = entries[name]
+                source = parse_skill_document(
+                    (REPOSITORY_ROOT / entry.source / "SKILL.md").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                from scripts.adapt import adapt_description
+
+                expected_description = adapt_description(
+                    entry.source, source.description, entry=entry
+                )
+                self.assertEqual(name, document.name)
+                self.assertEqual(expected_description, document.description)
+                self.assertLess(len(document.body.splitlines()), 250)
+                for section in required_sections:
+                    self.assertIn(section, document.body)
+                self.assertIn("main Codex agent", document.body)
+                self.assertIn("Never print, log, or expose secret values.", document.body)
+                dependency_text = (
+                    "; ".join(entry.dependencies) if entry.dependencies else "None."
+                )
+                self.assertIn(f"- **Dependencies:** {dependency_text}", document.body)
+
+    def test_no_claude_operations_or_mandatory_delegation(self):
+        prohibited = (
+            "Agent(",
+            "Task(",
+            "AskUserQuestion",
+            "TodoWrite",
+            "use the Write tool",
+            "$HOME/.claude/skills/gstack",
+            "--client claude-code",
+        )
+        for name, document in self.documents().items():
+            with self.subTest(name=name):
+                for phrase in prohibited:
+                    self.assertNotIn(phrase, document.body)
+                self.assertNotRegex(
+                    document.body.lower(),
+                    r"(?:must|required to|always) (?:delegate|use (?:a )?subagent)",
+                )
+
+    def test_context_keeper_is_append_only_and_uses_explicit_codex_target(self):
+        body = self.documents()["context-keeper"].body
+        self.assertIn(".codex/sessions/", body)
+        self.assertIn('CONTEXT_KEEPER_DIR="$SESSION_DIR"', body)
+        self.assertIn("scripts/new-session.sh", body)
+        self.assertIn("never edit a prior snapshot", body.lower())
+        self.assertIn("verified", body.lower())
+        self.assertIn("unverified", body.lower())
+        self.assertNotIn(".claude/sessions", body)
+
+    def test_doc_keepers_are_direct_docs_only_pr_workflows(self):
+        for name in ("doc-keeper", "tiger-doc-keeper"):
+            body = self.documents()[name].body
+            with self.subTest(name=name):
+                self.assertIn("Docs only", body)
+                self.assertIn("do not merge", body.lower())
+                self.assertIn("default branch", body.lower())
+                self.assertIn("evidence", body.lower())
+                self.assertIn("drift report", body.lower())
+        tiger = self.documents()["tiger-doc-keeper"].body
+        for rule in (
+            "BIG-PICTURE.md",
+            "SOTU",
+            "NEXT_SESSION",
+            "PROGRESS",
+            "TO-DO",
+            "VERIFIED",
+            "ARCHITECTURAL_DECISIONS",
+            "REFACTOR_QUEUE.md",
+            "SECURITY_HARDENING_QUEUE.md",
+            "SHA",
+            "ancestor",
+            "merged-PR",
+            "LINE/drift_guard",
+        ):
+            self.assertIn(rule, tiger)
+
+    def test_skill_miner_uses_codex_helper_and_direct_read_only_analysis(self):
+        body = self.documents()["skill-miner"].body
+        self.assertIn("scripts/digest_codex.py", body)
+        self.assertIn("current Codex", body)
+        self.assertIn("historical Claude", body)
+        self.assertIn("scripts/digest.py", body)
+        self.assertIn("read-only", body)
+        self.assertIn("analyze each batch directly", body.lower())
+        self.assertIn("BACKLOG.md", body)
+        self.assertIn("proposed", body)
+        self.assertIn("built", body)
+        self.assertIn("declined", body)
+        self.assertIn("never auto-build", body.lower())
+
+    def test_skills_librarian_uses_script_inputs_and_parallel_manifest(self):
+        body = self.documents()["skills-librarian"].body
+        for text in (
+            'SKILLS_DIR="$HOME/.codex/skills"',
+            "SKILLS_INDEX=",
+            "AGENTS_SRC=",
+            "codex-skills/manifest.yaml",
+            "quarantine",
+            "per-item approval",
+            "never delete",
+        ):
+            self.assertIn(text, body)
+        self.assertNotIn("AGENTS_DIR=", body)
+
+    def test_page_rethink_requires_codex_browser_and_both_viewports(self):
+        body = self.documents()["page-rethink"].body
+        self.assertRegex(body, r"browser-use:browser|vercel:agent-browser")
+        self.assertIn("desktop", body.lower())
+        self.assertIn("375x812", body)
+        self.assertIn("Reading Laws", body)
+        self.assertIn("token-true", body)
+        self.assertIn("one note", body.lower())
+        self.assertIn("surgically", body.lower())
+        self.assertNotIn("gstack", body.lower())
+
+    def test_google_workflows_are_connector_first_with_safe_cli_fallback(self):
+        google_names = sorted(name for name in REQUIRED_OVERRIDE_NAMES if name.startswith("gws-"))
+        documents = self.documents()
+        for name in google_names:
+            body = documents[name].body
+            with self.subTest(name=name):
+                self.assertIn("connected", body.lower())
+                self.assertIn("gws CLI", body)
+                self.assertIn("fallback", body.lower())
+                self.assertIn("Read-only", body)
+                self.assertNotRegex(body, r"\.\./gws-[^)\s]+")
+        for name in ("gws-workflow-email-to-task", "gws-workflow-file-announce"):
+            body = documents[name].body
+            with self.subTest(name=name):
+                self.assertIn("confirm", body.lower())
+                self.assertIn("target", body.lower())
+                self.assertIn("content", body.lower())
+
+    def test_real_build_uses_normalized_overrides_and_preserves_supporting_files(self):
+        collection = load_manifest(
+            CODEX_SKILLS_ROOT / "manifest.yaml", repo_root=REPOSITORY_ROOT
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "skills"
+            first = build_collection(REPOSITORY_ROOT, collection, output)
+            first_snapshot = BuildTests.snapshot(output)
+            second = build_collection(REPOSITORY_ROOT, collection, output)
+            self.assertEqual(first, second)
+            self.assertEqual(first_snapshot, BuildTests.snapshot(output))
+            for name in REQUIRED_OVERRIDE_NAMES:
+                override = self.override_root / name / "SKILL.md"
+                expected = render_skill_document(
+                    parse_skill_document(override.read_text(encoding="utf-8"))
+                ).encode()
+                self.assertEqual(expected, (output / name / "SKILL.md").read_bytes())
+            self.assertTrue((output / "context-keeper/scripts/new-session.sh").is_file())
+            self.assertTrue((output / "skill-miner/scripts/digest.py").is_file())
+            self.assertTrue((output / "skill-miner/scripts/digest_codex.py").is_file())
+            self.assertTrue((output / "skill-miner/REFERENCE.md").is_file())
+            self.assertTrue((output / "skills-librarian/scripts/audit.py").is_file())
+            self.assertTrue((output / "skills-librarian/scripts/backup.sh").is_file())
 
 
 if __name__ == "__main__":

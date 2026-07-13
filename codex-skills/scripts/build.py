@@ -68,6 +68,34 @@ GENERATED_ADAPTER_RESOURCES = {
         ),
     ),
 }
+REQUIRED_OVERRIDE_NAMES = frozenset(
+    {
+        "context-keeper",
+        "doc-keeper",
+        "gws-shared",
+        "gws-workflow",
+        "gws-workflow-email-to-task",
+        "gws-workflow-file-announce",
+        "gws-workflow-meeting-prep",
+        "gws-workflow-standup-report",
+        "gws-workflow-weekly-digest",
+        "page-rethink",
+        "skill-miner",
+        "skills-librarian",
+        "tiger-doc-keeper",
+    }
+)
+OVERRIDE_REQUIRED_SECTIONS = (
+    "## Codex Runtime",
+    "## Inputs and Preflight",
+    "## Procedure",
+    "## Safety and Errors",
+    "## Output Contract",
+)
+_MANDATORY_DELEGATION = re.compile(
+    r"\b(?:must|required to|always)\s+(?:delegate|use (?:a )?subagent)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -264,6 +292,128 @@ def _validate_sources(repo_root: Path, manifest: Manifest) -> list[_ValidatedSou
     return validated
 
 
+def _normalize_override_document(document: SkillDocument) -> SkillDocument:
+    return replace(
+        document,
+        body=document.body.replace("\r\n", "\n").replace("\r", "\n"),
+    )
+
+
+def _validate_overrides(
+    repo_root: Path,
+    manifest: Manifest,
+    sources: list[_ValidatedSource],
+) -> dict[str, SkillDocument]:
+    override_root = repo_root / "codex-skills" / "overrides"
+    manifest_outputs = {entry.output for entry in manifest.sources}
+    required = REQUIRED_OVERRIDE_NAMES & manifest_outputs
+    declared_outputs = set(manifest_outputs)
+    canonical_manifest_path = repo_root / "codex-skills" / "manifest.yaml"
+    if canonical_manifest_path.is_file() and not canonical_manifest_path.is_symlink():
+        canonical_manifest = load_manifest(
+            canonical_manifest_path, repo_root=repo_root
+        )
+        declared_outputs.update(entry.output for entry in canonical_manifest.sources)
+    actual: set[str] = set()
+
+    if override_root.exists():
+        if override_root.is_symlink() or not override_root.is_dir():
+            raise ValueError(f"unsafe override root: {override_root}")
+        actual = {path.name for path in override_root.iterdir()}
+
+    allowed = REQUIRED_OVERRIDE_NAMES & declared_outputs
+    undeclared = actual - allowed
+    if undeclared:
+        raise ValueError(
+            "undeclared override output(s): " + ", ".join(sorted(undeclared))
+        )
+    missing = required - actual
+    if missing:
+        raise ValueError(
+            "missing required override(s): " + ", ".join(sorted(missing))
+        )
+
+    sources_by_output = {source.entry.output: source for source in sources}
+    overrides: dict[str, SkillDocument] = {}
+    for name in sorted(required):
+        directory = override_root / name
+        skill_path = directory / "SKILL.md"
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError(f"unsafe override directory: {name}")
+        contents = sorted(
+            path.relative_to(directory).as_posix()
+            for path in directory.rglob("*")
+        )
+        if contents != ["SKILL.md"]:
+            raise ValueError(f"override {name} may contain only SKILL.md")
+        if skill_path.is_symlink() or not skill_path.is_file():
+            raise ValueError(f"unsafe override SKILL.md: {name}")
+        try:
+            with skill_path.open("r", encoding="utf-8", newline="") as override_file:
+                document = _normalize_override_document(
+                    parse_skill_document(override_file.read())
+                )
+        except (OSError, UnicodeError, ValueError) as error:
+            raise ValueError(f"override {name} is malformed: {error}") from error
+
+        source = sources_by_output[name]
+        entry = source.entry
+        if document.name != name or document.name != entry.output:
+            raise ValueError(
+                f"override skill name {document.name!r} does not match "
+                f"manifest output {entry.output!r}"
+            )
+        expected_description = _adapt_entry_description(
+            entry, source.document.description
+        )
+        if document.description != expected_description:
+            raise ValueError(
+                f"override description for {name} does not preserve source semantics"
+            )
+        if len(document.body.splitlines()) >= 250:
+            raise ValueError(f"override {name} must be fewer than 250 lines")
+
+        positions: list[int] = []
+        for section in OVERRIDE_REQUIRED_SECTIONS:
+            if document.body.count(section) != 1:
+                raise ValueError(
+                    f"override {name} must contain exactly one {section!r} section"
+                )
+            positions.append(document.body.index(section))
+        if positions != sorted(positions):
+            raise ValueError(f"override {name} sections are out of order")
+        if "main Codex agent" not in document.body:
+            raise ValueError(f"override {name} must operate in the main Codex agent")
+        if "Never print, log, or expose secret values." not in document.body:
+            raise ValueError(f"override {name} is missing the secret-safety clause")
+
+        dependency_value = (
+            "; ".join(entry.dependencies) if entry.dependencies else "None."
+        )
+        expected_dependency = f"- **Dependencies:** {dependency_value}"
+        dependency_lines = [
+            line
+            for line in document.body.splitlines()
+            if line.startswith("- **Dependencies:**")
+        ]
+        if dependency_lines != [expected_dependency]:
+            raise ValueError(
+                f"override {name} dependency contract does not match manifest"
+            )
+        if _MANDATORY_DELEGATION.search(document.body):
+            raise ValueError(f"override {name} requires unsupported delegation")
+        if ".claude/sessions" in document.body and not (
+            "historical" in document.body.lower()
+            and "read-only" in document.body.lower()
+        ):
+            raise ValueError(
+                f"override {name} uses live Claude session paths instead of read-only evidence"
+            )
+        validate_generated_markdown(name, "SKILL.md", render_skill_document(document))
+        overrides[name] = document
+    return overrides
+
+
 def _adapt_entry_text(
     entry: SkillEntry, text: str, *, relative_path: str = "SKILL.md"
 ) -> str:
@@ -417,8 +567,12 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
     """Build normalized copies for source entries; promoted entries are handled later."""
     resolved_root = Path(repo_root).expanduser().resolve(strict=True)
     validated = _validate_sources(resolved_root, manifest)
+    overrides = _validate_overrides(resolved_root, manifest, validated)
     protected_paths = [source.source_dir for source in validated]
     protected_paths.append((resolved_root / ".agents-backup").resolve(strict=False))
+    protected_paths.append(
+        (resolved_root / "codex-skills" / "overrides").resolve(strict=False)
+    )
     for entry in manifest.promoted:
         if entry.promoted_from is None:
             raise ValueError("promoted entry is missing provenance")
@@ -442,17 +596,6 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
         for source in validated:
             destination = staging_dir / source.entry.output
             destination.mkdir()
-            output_document = replace(
-                source.document,
-                name=source.entry.output,
-                description=_adapt_entry_description(
-                    source.entry, source.document.description
-                ),
-                body=_adapt_entry_text(source.entry, source.document.body),
-            )
-            _write_text_exact(
-                destination / "SKILL.md", render_skill_document(output_document)
-            )
             for resource in source.resources:
                 _copy_resource(
                     resource, source.source_dir, destination, source.entry
@@ -460,6 +603,22 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
             _copy_generated_adapter_resources(
                 resolved_root, source.entry, destination
             )
+            output_document = overrides.get(source.entry.output)
+            if output_document is None:
+                output_document = replace(
+                    source.document,
+                    name=source.entry.output,
+                    description=_adapt_entry_description(
+                        source.entry, source.document.description
+                    ),
+                    body=_adapt_entry_text(source.entry, source.document.body),
+                )
+            skill_output = destination / "SKILL.md"
+            _write_text_exact(
+                skill_output, render_skill_document(output_document)
+            )
+            if source.entry.output in overrides:
+                skill_output.chmod(0o644)
             _validate_markdown_tree(source.entry, destination)
             agents_dir = destination / "agents"
             agents_dir.mkdir(parents=True, exist_ok=True)
