@@ -531,30 +531,151 @@ class InstallTests(unittest.TestCase):
         self.assert_only_original_links(self.destination, raw_targets)
         self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
 
-    def test_recovery_cleanup_failure_warns_after_committed_update(self):
+    def test_recovery_cleanup_failure_rolls_back_everything(self):
+        names = ("agent-reach", "ai-evaluation-audit", "allsup-leads-ssdi")
+        for error_type in (OSError, RuntimeError):
+            for failure_position in (1, 2, 3):
+                with self.subTest(
+                    error_type=error_type.__name__, position=failure_position
+                ):
+                    destination = (
+                        self.root
+                        / f"recovery-{error_type.__name__}-{failure_position}"
+                    )
+                    raw_targets = self.make_stale_managed_links(destination, names)
+                    real_unlink = os.unlink
+                    attempts = 0
+                    failed = False
+
+                    def fail_recovery_once(path, *args, **kwargs):
+                        nonlocal attempts, failed
+                        if ".recovery.codex-install-" in Path(path).name:
+                            attempts += 1
+                            if not failed and attempts == failure_position:
+                                failed = True
+                                raise error_type("injected recovery cleanup failure")
+                        return real_unlink(path, *args, **kwargs)
+
+                    with patch(
+                        "scripts.install.os.unlink", side_effect=fail_recovery_once
+                    ):
+                        result = install(COLLECTION, destination)
+
+                    self.assertTrue(
+                        any(
+                            "recovery cleanup failure" in error
+                            for error in result.errors
+                        ),
+                        result.errors,
+                    )
+                    self.assertFalse(result.ok)
+                    self.assertEqual((), result.created)
+                    self.assertEqual((), result.updated)
+                    self.assertEqual((), result.warnings)
+                    self.assert_only_original_links(destination, raw_targets)
+                    self.assertEqual(
+                        [], list(destination.glob(".*.codex-install-*"))
+                    )
+
+    def test_exchange_back_retry_uses_guarded_replace_for_concurrent_path(self):
         self.make_stale_managed_links(self.destination, ("agent-reach",))
-        real_unlink = os.unlink
-        failed = False
+        existing = self.destination / "agent-reach"
+        from scripts import install as install_module
 
-        def fail_recovery_once(path, *args, **kwargs):
-            nonlocal failed
-            if not failed and ".recovery.codex-install-" in Path(path).name:
-                failed = True
-                raise OSError("injected recovery cleanup failure")
-            return real_unlink(path, *args, **kwargs)
+        real_exchange = install_module._atomic_exchange
+        calls = 0
+        concurrent_inode: int | None = None
 
-        with patch("scripts.install.os.unlink", side_effect=fail_recovery_once):
+        def fail_exchange_back_and_retries(first, second):
+            nonlocal calls, concurrent_inode
+            calls += 1
+            if calls == 1:
+                existing.unlink()
+                existing.write_bytes(b"concurrent fallback file\n")
+                concurrent_inode = existing.lstat().st_ino
+                return real_exchange(first, second)
+            raise OSError("injected unavailable exchange-back")
+
+        with patch(
+            "scripts.install._atomic_exchange",
+            side_effect=fail_exchange_back_and_retries,
+        ):
             result = install(COLLECTION, self.destination)
 
-        self.assertTrue(result.ok, result.errors)
-        self.assertEqual((), result.errors)
         self.assertTrue(
-            any("recovery cleanup failure" in warning for warning in result.warnings)
+            any("unavailable exchange-back" in error for error in result.errors),
+            result.errors,
         )
-        self.assertEqual(("agent-reach",), result.updated)
-        recovery = list(self.destination.glob(".*.recovery.codex-install-*"))
-        self.assertEqual(1, len(recovery))
-        self.assertTrue(recovery[0].is_symlink())
+        self.assertEqual(4, calls)
+        self.assertIsNotNone(concurrent_inode)
+        self.assertFalse(existing.is_symlink())
+        self.assertEqual(concurrent_inode, existing.lstat().st_ino)
+        self.assertEqual(b"concurrent fallback file\n", existing.read_bytes())
+        self.assertEqual(
+            ["agent-reach"], [path.name for path in self.destination.iterdir()]
+        )
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
+    def test_exchange_back_failure_restores_concurrent_real_path(self):
+        from scripts import install as install_module
+
+        real_exchange = install_module._atomic_exchange
+        for error_type in (OSError, RuntimeError):
+            for failure_phase in ("before", "after"):
+                with self.subTest(
+                    error_type=error_type.__name__, phase=failure_phase
+                ):
+                    destination = (
+                        self.root
+                        / f"exchange-{error_type.__name__}-{failure_phase}"
+                    )
+                    self.make_stale_managed_links(destination, ("agent-reach",))
+                    existing = destination / "agent-reach"
+                    calls = 0
+                    concurrent_inode: int | None = None
+
+                    def fail_second_exchange(first, second):
+                        nonlocal calls, concurrent_inode
+                        calls += 1
+                        if calls == 1:
+                            existing.unlink()
+                            existing.write_bytes(b"concurrent personal file\n")
+                            concurrent_inode = existing.lstat().st_ino
+                            return real_exchange(first, second)
+                        if calls == 2:
+                            if failure_phase == "after":
+                                real_exchange(first, second)
+                            raise error_type(
+                                f"injected {failure_phase} exchange-back failure"
+                            )
+                        return real_exchange(first, second)
+
+                    with patch(
+                        "scripts.install._atomic_exchange",
+                        side_effect=fail_second_exchange,
+                    ):
+                        result = install(COLLECTION, destination)
+
+                    self.assertTrue(
+                        any("exchange-back failure" in error for error in result.errors),
+                        result.errors,
+                    )
+                    self.assertFalse(result.ok)
+                    self.assertEqual((), result.created)
+                    self.assertEqual((), result.updated)
+                    self.assertIsNotNone(concurrent_inode)
+                    self.assertFalse(existing.is_symlink())
+                    self.assertEqual(concurrent_inode, existing.lstat().st_ino)
+                    self.assertEqual(
+                        b"concurrent personal file\n", existing.read_bytes()
+                    )
+                    self.assertEqual(
+                        ["agent-reach"],
+                        [path.name for path in destination.iterdir()],
+                    )
+                    self.assertEqual(
+                        [], list(destination.glob(".*.codex-install-*"))
+                    )
 
     def test_atomic_failure_rolls_back_links_and_removes_temp_debris(self):
         self.destination.mkdir(parents=True)

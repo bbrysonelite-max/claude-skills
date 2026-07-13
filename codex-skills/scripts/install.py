@@ -103,6 +103,8 @@ class _AppliedLink:
     old_identity: tuple[int, int, int] | None = None
     backup: Path | None = None
     recovery: Path | None = None
+    displaced: Path | None = None
+    displaced_identity: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -325,7 +327,18 @@ def _create_symlink_exclusive(
     kind: str,
     owned_paths: list[Path],
 ) -> Path:
-    target = str(source.resolve(strict=True))
+    return _create_raw_symlink_exclusive(
+        str(source.resolve(strict=True)), destination, name, kind, owned_paths
+    )
+
+
+def _create_raw_symlink_exclusive(
+    target: str,
+    destination: Path,
+    name: str,
+    kind: str,
+    owned_paths: list[Path],
+) -> Path:
     for _ in range(TEMP_ATTEMPTS):
         candidate = _temporary_path(destination, name, kind)
         try:
@@ -435,35 +448,118 @@ def _cleanup_path(path: Path) -> None:
         raise OSError(f"refusing to clean non-symlink temporary path: {path}")
 
 
-def _rollback_links(applied: list[_AppliedLink], errors: list[str]) -> None:
+def _exchange_restore(
+    item: _AppliedLink,
+    material: Path,
+    material_identity: tuple[int, int, int],
+) -> None:
+    last_error: OSError | RuntimeError | None = None
+    for _ in range(2):
+        try:
+            _atomic_exchange(item.path, material)
+        except (OSError, RuntimeError) as error:
+            last_error = error
+            if _path_identity(item.path) == material_identity:
+                return
+            if (
+                not item.path.is_symlink()
+                or _path_identity(item.path) != item.new_identity
+                or _path_identity(material) != material_identity
+            ):
+                raise OSError(
+                    f"rollback paths changed during atomic exchange for {item.name}"
+                ) from error
+            continue
+        if _path_identity(item.path) == material_identity:
+            return
+        raise OSError(f"atomic rollback verification failed for {item.name}")
+
+    if (
+        not item.path.is_symlink()
+        or _path_identity(item.path) != item.new_identity
+        or _path_identity(material) != material_identity
+    ):
+        raise OSError(f"refusing guarded rollback replacement for {item.name}")
+    try:
+        os.replace(material, item.path)
+    except OSError as error:
+        raise OSError(f"guarded rollback replacement failed for {item.name}") from error
+    if _path_identity(item.path) != material_identity:
+        raise OSError(f"guarded rollback verification failed for {item.name}") from last_error
+
+
+def _rollback_links(
+    applied: list[_AppliedLink],
+    errors: list[str],
+    owned_paths: list[Path],
+) -> None:
     for item in reversed(applied):
         try:
-            if _path_identity(item.path) != item.new_identity:
-                raise OSError(
-                    f"installed path changed before rollback: {item.path}"
-                )
             if item.operation == "created":
-                if not item.path.is_symlink():
+                if (
+                    not item.path.is_symlink()
+                    or _path_identity(item.path) != item.new_identity
+                ):
                     raise OSError(f"created path is not a symlink: {item.path}")
                 item.path.unlink()
                 continue
 
-            material = item.recovery if item.recovery and _lexists(item.recovery) else item.backup
-            if material is None or not _lexists(material):
-                raise OSError(f"rollback material is missing for {item.name}")
+            current_identity = _path_identity(item.path)
             if (
-                item.old_identity is None
-                or _path_identity(material) != item.old_identity
-                or not material.is_symlink()
-                or os.readlink(material) != item.old_target
+                item.displaced_identity is not None
+                and current_identity == item.displaced_identity
             ):
-                raise OSError(f"rollback material changed for {item.name}")
-            _atomic_exchange(item.path, material)
+                continue
+            if current_identity != item.new_identity or not item.path.is_symlink():
+                raise OSError(f"installed path changed before rollback: {item.path}")
+
+            material: Path | None = None
+            material_identity: tuple[int, int, int] | None = None
+            expected_target: str | None = None
             if (
-                _path_identity(item.path) != item.old_identity
-                or os.readlink(item.path) != item.old_target
+                item.displaced is not None
+                and item.displaced_identity is not None
+                and _lexists(item.displaced)
+                and _path_identity(item.displaced) == item.displaced_identity
             ):
-                raise OSError(f"atomic rollback verification failed for {item.name}")
+                material = item.displaced
+                material_identity = item.displaced_identity
+                if item.displaced_identity == item.old_identity:
+                    expected_target = item.old_target
+            else:
+                for candidate in (item.recovery, item.backup):
+                    if candidate is None or not _lexists(candidate):
+                        continue
+                    if (
+                        item.old_identity is not None
+                        and candidate.is_symlink()
+                        and _path_identity(candidate) == item.old_identity
+                        and os.readlink(candidate) == item.old_target
+                    ):
+                        material = candidate
+                        material_identity = item.old_identity
+                        expected_target = item.old_target
+                        break
+            if material is None:
+                if item.old_target is None:
+                    raise OSError(f"rollback target is missing for {item.name}")
+                material = _create_raw_symlink_exclusive(
+                    item.old_target,
+                    item.path.parent,
+                    item.name,
+                    "rollback",
+                    owned_paths,
+                )
+                material_identity = _path_identity(material)
+                expected_target = item.old_target
+
+            assert material_identity is not None
+            _exchange_restore(item, material, material_identity)
+            if expected_target is not None and (
+                not item.path.is_symlink()
+                or os.readlink(item.path) != expected_target
+            ):
+                raise OSError(f"rollback target verification failed for {item.name}")
         except (OSError, RuntimeError) as rollback_error:
             errors.append(f"rollback failed for {item.name}: {rollback_error}")
 
@@ -475,7 +571,6 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
     applied: list[_AppliedLink] = []
     previous = dict(plan.previous_links)
     errors: list[str] = []
-    warnings: list[str] = []
     committed = False
     try:
         _create_destination(destination, created_directories)
@@ -530,18 +625,21 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                 old_identity=old_identity,
                 backup=backup,
             )
+            exchange_error: OSError | RuntimeError | None = None
             try:
                 _atomic_exchange(path, ready)
-            except (OSError, RuntimeError):
-                if (
-                    path.is_symlink()
-                    and ready.is_symlink()
-                    and _path_identity(path) == new_identity
-                    and _path_identity(ready) == old_identity
-                    and os.readlink(ready) == old_target
-                ):
-                    applied.append(item)
-                raise
+            except (OSError, RuntimeError) as error:
+                exchange_error = error
+            if path.is_symlink() and _path_identity(path) == new_identity:
+                item.displaced = ready
+                item.displaced_identity = _path_identity(ready)
+                applied.append(item)
+            elif exchange_error is not None:
+                raise exchange_error
+            else:
+                raise OSError(f"managed link changed during atomic exchange: {path}")
+            if exchange_error is not None:
+                raise exchange_error
             if (
                 _path_identity(ready) != old_identity
                 or not ready.is_symlink()
@@ -549,7 +647,6 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
             ):
                 _atomic_exchange(path, ready)
                 raise OSError(f"managed link changed during atomic exchange: {path}")
-            applied.append(item)
             ready.unlink()
 
         updates = [item for item in applied if item.operation == "updated"]
@@ -565,31 +662,28 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
         for item in updates:
             assert item.backup is not None
             item.backup.unlink()
+        for item in updates:
+            assert item.recovery is not None
+            item.recovery.unlink()
         committed = True
     except (OSError, RuntimeError) as error:
         errors.append(f"installation mutation failed: {error}")
-        _rollback_links(applied, errors)
+        _rollback_links(applied, errors, owned_paths)
     finally:
-        if committed:
-            for recovery in recovery_paths:
-                try:
-                    _cleanup_path(recovery)
-                except (OSError, RuntimeError) as cleanup_error:
-                    warnings.append(
-                        f"committed install left recovery link {recovery}: {cleanup_error}"
-                    )
-        else:
+        if not committed:
             for path in reversed((*owned_paths, *recovery_paths)):
                 try:
                     _cleanup_path(path)
                 except (OSError, RuntimeError) as cleanup_error:
-                    errors.append(f"temporary cleanup failed for {path}: {cleanup_error}")
+                    errors.append(
+                        f"temporary cleanup failed for {path}: {cleanup_error}"
+                    )
             for directory in reversed(created_directories):
                 try:
                     directory.rmdir()
                 except OSError:
                     pass
-    return _MutationOutcome(tuple(errors), tuple(warnings))
+    return _MutationOutcome(tuple(errors), ())
 
 
 def install(
