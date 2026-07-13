@@ -106,6 +106,192 @@ class InstallTests(unittest.TestCase):
             {path.name: os.readlink(path) for path in self.destination.iterdir()},
         )
 
+    def test_idempotent_plan_rejects_destination_swap_before_open(self):
+        from scripts import install as install_module
+
+        install(COLLECTION, self.destination)
+        moved = self.root / "planned-destination"
+        real_open = install_module._DestinationHandle.open
+
+        def swap_before_open(handle):
+            self.destination.rename(moved)
+            self.destination.mkdir()
+            (self.destination / "personal.txt").write_bytes(b"replacement root\n")
+            return real_open(handle)
+
+        with patch.object(
+            install_module._DestinationHandle,
+            "open",
+            autospec=True,
+            side_effect=swap_before_open,
+        ):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.errors)
+        self.assertEqual((), result.unchanged)
+        self.assertEqual(
+            ["personal.txt"],
+            [path.name for path in self.destination.iterdir()],
+        )
+        self.assertEqual(58, len(tuple(moved.iterdir())))
+        self.assertEqual([], list(moved.glob(".*.codex-install-*")))
+
+    def test_skip_plan_rejects_destination_swap_before_open(self):
+        from scripts import install as install_module
+
+        existing = make_external_skill(self.destination, "last30days")
+        expected_document = (existing / "SKILL.md").read_bytes()
+        first = install(
+            COLLECTION,
+            self.destination,
+            skip_existing=("last30days",),
+        )
+        self.assertEqual(57, len(first.created))
+        moved = self.root / "planned-skip-destination"
+        real_open = install_module._DestinationHandle.open
+
+        def swap_before_open(handle):
+            self.destination.rename(moved)
+            self.destination.mkdir()
+            (self.destination / "personal.txt").write_bytes(b"replacement skip root\n")
+            return real_open(handle)
+
+        with patch.object(
+            install_module._DestinationHandle,
+            "open",
+            autospec=True,
+            side_effect=swap_before_open,
+        ):
+            result = install(
+                COLLECTION,
+                self.destination,
+                skip_existing=("last30days",),
+            )
+
+        self.assertTrue(result.errors)
+        self.assertEqual((), result.unchanged)
+        self.assertEqual((), result.skipped)
+        self.assertEqual(
+            ["personal.txt"],
+            [path.name for path in self.destination.iterdir()],
+        )
+        self.assertEqual(
+            expected_document,
+            (moved / "last30days" / "SKILL.md").read_bytes(),
+        )
+        self.assertEqual(58, len(tuple(moved.iterdir())))
+        self.assertEqual([], list(moved.glob(".*.codex-install-*")))
+
+    def test_unchanged_link_replacement_after_open_invalidates_plan(self):
+        from scripts import install as install_module
+
+        install(COLLECTION, self.destination)
+        path = self.destination / "agent-reach"
+        displaced = self.destination / "preserved-agent-reach"
+        expected_target = os.readlink(path)
+        real_open = install_module._DestinationHandle.open
+
+        def replace_after_open(handle):
+            real_open(handle)
+            path.rename(displaced)
+            path.write_bytes(b"replacement entry\n")
+
+        with patch.object(
+            install_module._DestinationHandle,
+            "open",
+            autospec=True,
+            side_effect=replace_after_open,
+        ):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.errors)
+        self.assertEqual((), result.unchanged)
+        self.assertEqual(b"replacement entry\n", path.read_bytes())
+        self.assertTrue(displaced.is_symlink())
+        self.assertEqual(expected_target, os.readlink(displaced))
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
+    def test_approved_skill_mutation_after_open_invalidates_plan_before_creation(self):
+        from scripts import install as install_module
+
+        existing = make_external_skill(self.destination, "last30days")
+        skill = existing / "SKILL.md"
+        replacement = skill.read_bytes().replace(
+            b"an installer test needs an existing skill",
+            b"the approved skill changed after planning",
+        )
+        real_open = install_module._DestinationHandle.open
+
+        def mutate_after_open(handle):
+            real_open(handle)
+            skill.write_bytes(replacement)
+
+        with patch.object(
+            install_module._DestinationHandle,
+            "open",
+            autospec=True,
+            side_effect=mutate_after_open,
+        ):
+            result = install(
+                COLLECTION,
+                self.destination,
+                skip_existing=("last30days",),
+            )
+
+        self.assertTrue(result.errors)
+        self.assertEqual((), result.created)
+        self.assertEqual((), result.unchanged)
+        self.assertEqual((), result.skipped)
+        self.assertEqual(57, len(result.planned_created))
+        self.assertEqual(replacement, skill.read_bytes())
+        self.assertEqual(
+            ["last30days"],
+            [path.name for path in self.destination.iterdir()],
+        )
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
+    def test_approved_skill_mutation_during_install_rolls_back_before_commit(self):
+        from scripts import install as install_module
+
+        existing = make_external_skill(self.destination, "last30days")
+        skill = existing / "SKILL.md"
+        replacement = skill.read_bytes().replace(
+            b"an installer test needs an existing skill",
+            b"the approved skill changed during installation",
+        )
+        real_publish = install_module._publish_without_overwrite
+        changed = False
+
+        def publish_then_mutate(*args, **kwargs):
+            nonlocal changed
+            result = real_publish(*args, **kwargs)
+            if not changed:
+                changed = True
+                skill.write_bytes(replacement)
+            return result
+
+        with patch(
+            "scripts.install._publish_without_overwrite",
+            side_effect=publish_then_mutate,
+        ):
+            result = install(
+                COLLECTION,
+                self.destination,
+                skip_existing=("last30days",),
+            )
+
+        self.assertTrue(changed)
+        self.assertTrue(result.errors)
+        self.assertEqual((), result.created)
+        self.assertEqual((), result.skipped)
+        self.assertEqual(57, len(result.planned_created))
+        self.assertEqual(replacement, skill.read_bytes())
+        self.assertEqual(
+            ["last30days"],
+            [path.name for path in self.destination.iterdir()],
+        )
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
     def test_updates_a_managed_link_pointing_to_wrong_direct_child(self):
         install(COLLECTION, self.destination)
         path = self.destination / "agent-reach"

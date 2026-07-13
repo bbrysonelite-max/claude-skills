@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import errno
+import hashlib
 import json
 import os
 import re
@@ -13,14 +14,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from scripts.common import SAFE_SKILL_NAME
+    from scripts.common import SAFE_SKILL_NAME, parse_skill_document
     from scripts.validate import (
         EXPECTED_SKILL_COUNT,
         validate_approved_existing,
         validate_collection,
     )
 except ModuleNotFoundError:  # Support direct execution as scripts/install.py.
-    from common import SAFE_SKILL_NAME  # type: ignore[no-redef]
+    from common import SAFE_SKILL_NAME, parse_skill_document  # type: ignore[no-redef]
     from validate import (  # type: ignore[no-redef]
         EXPECTED_SKILL_COUNT,
         validate_approved_existing,
@@ -76,6 +77,29 @@ class _Source:
 
 
 @dataclass(frozen=True)
+class _ManagedLinkEvidence:
+    name: str
+    identity: tuple[int, int, int]
+    raw_target: str
+    resolved_target: Path
+
+
+@dataclass(frozen=True)
+class _ApprovedSkillEvidence:
+    name: str
+    entry_identity: tuple[int, int, int]
+    raw_target: str | None
+    root: Path
+    root_identity: tuple[int, int, int]
+    skill_entry_identity: tuple[int, int, int]
+    skill_raw_target: str | None
+    skill_target: Path
+    skill_target_identity: tuple[int, int, int]
+    skill_sha256: str
+    document_name: str
+
+
+@dataclass(frozen=True)
 class _Plan:
     created: tuple[str, ...]
     updated: tuple[str, ...]
@@ -84,15 +108,21 @@ class _Plan:
     collisions: tuple[str, ...]
     errors: tuple[str, ...]
     previous_links: tuple[tuple[str, str], ...]
+    destination_identity: tuple[int, int, int] | None
+    canonical_destination_identity: tuple[int, int, int] | None
+    unchanged_evidence: tuple[_ManagedLinkEvidence, ...]
+    skipped_evidence: tuple[_ApprovedSkillEvidence, ...]
 
     def result(self, *, errors: tuple[str, ...] | None = None) -> InstallResult:
+        result_errors = self.errors if errors is None else errors
+        observations_are_current = not result_errors and not self.collisions
         return InstallResult(
             planned_created=self.created,
             planned_updated=self.updated,
-            unchanged=self.unchanged,
-            skipped=self.skipped,
+            unchanged=self.unchanged if observations_are_current else (),
+            skipped=self.skipped if observations_are_current else (),
             collisions=self.collisions,
-            errors=self.errors if errors is None else errors,
+            errors=result_errors,
         )
 
 
@@ -420,6 +450,72 @@ def _managed_link_target(path: Path, source_root: Path) -> tuple[Path, str] | No
     return target, raw_target
 
 
+def _path_identity(path: Path) -> tuple[int, int, int]:
+    return _DestinationHandle._identity(path.lstat())
+
+
+def _capture_approved_skill(path: Path, name: str) -> _ApprovedSkillEvidence:
+    entry_identity = _path_identity(path)
+    raw_target = os.readlink(path) if stat.S_ISLNK(entry_identity[2]) else None
+    root = path.resolve(strict=True)
+    root_identity = _path_identity(root)
+    if root_identity[2] != stat.S_IFDIR:
+        raise OSError(f"approved existing skill is not a directory: {path}")
+
+    skill = root / "SKILL.md"
+    skill_entry_identity = _path_identity(skill)
+    skill_raw_target = (
+        os.readlink(skill) if stat.S_ISLNK(skill_entry_identity[2]) else None
+    )
+    skill_target = skill.resolve(strict=True)
+    skill_target_identity = _path_identity(skill_target)
+    if skill_target_identity[2] != stat.S_IFREG:
+        raise OSError(f"approved existing SKILL.md is not a file: {skill}")
+    content = skill_target.read_bytes()
+    if _path_identity(skill_target) != skill_target_identity:
+        raise OSError(f"approved existing SKILL.md changed while planning: {skill}")
+    try:
+        document = parse_skill_document(content.decode("utf-8"))
+    except (UnicodeError, ValueError) as error:
+        raise OSError(
+            f"approved existing SKILL.md changed while planning: {error}"
+        ) from error
+    if document.name != name:
+        raise OSError(
+            f"approved existing SKILL.md name changed while planning: {document.name!r}"
+        )
+    if (
+        _path_identity(path) != entry_identity
+        or (raw_target is not None and os.readlink(path) != raw_target)
+        or _path_identity(root) != root_identity
+        or _path_identity(skill) != skill_entry_identity
+        or (skill_raw_target is not None and os.readlink(skill) != skill_raw_target)
+    ):
+        raise OSError(f"approved existing skill changed while planning: {path}")
+    return _ApprovedSkillEvidence(
+        name,
+        entry_identity,
+        raw_target,
+        root,
+        root_identity,
+        skill_entry_identity,
+        skill_raw_target,
+        skill_target,
+        skill_target_identity,
+        hashlib.sha256(content).hexdigest(),
+        document.name,
+    )
+
+
+def _destination_identities(
+    destination: Path,
+) -> tuple[tuple[int, int, int] | None, tuple[int, int, int] | None]:
+    if not _lexists(destination):
+        return None, None
+    canonical = _DestinationHandle._canonical_path(destination)
+    return _path_identity(destination), _path_identity(canonical)
+
+
 def _plan_install(
     source: _Source,
     destination: Path,
@@ -432,6 +528,16 @@ def _plan_install(
     collisions: list[str] = []
     errors: list[str] = []
     previous_links: list[tuple[str, str]] = []
+    unchanged_evidence: list[_ManagedLinkEvidence] = []
+    skipped_evidence: list[_ApprovedSkillEvidence] = []
+    try:
+        destination_identity, canonical_destination_identity = (
+            _destination_identities(destination)
+        )
+    except OSError as error:
+        destination_identity = None
+        canonical_destination_identity = None
+        errors.append(f"destination changed while planning: {error}")
 
     requested_skips = set(skip_existing)
     invalid_skips = sorted(
@@ -459,7 +565,15 @@ def _plan_install(
                     for error in validation_errors
                 )
             else:
-                skipped.append(name)
+                try:
+                    evidence = _capture_approved_skill(path, name)
+                except (OSError, RuntimeError) as error:
+                    errors.append(
+                        f"skip-existing skill {name} changed while planning: {error}"
+                    )
+                else:
+                    skipped.append(name)
+                    skipped_evidence.append(evidence)
             continue
 
         if not exists:
@@ -474,10 +588,33 @@ def _plan_install(
             continue
         target, raw_target = managed
         if target == source.root / name and target.is_dir():
+            try:
+                identity = _path_identity(path)
+                current_raw_target = os.readlink(path)
+            except OSError as error:
+                errors.append(f"managed link {name} changed while planning: {error}")
+                continue
+            if identity[2] != stat.S_IFLNK or current_raw_target != raw_target:
+                errors.append(f"managed link {name} changed while planning")
+                continue
             unchanged.append(name)
+            unchanged_evidence.append(
+                _ManagedLinkEvidence(name, identity, raw_target, target)
+            )
         else:
             updated.append(name)
             previous_links.append((name, raw_target))
+
+    try:
+        final_destination_identities = _destination_identities(destination)
+    except OSError as error:
+        errors.append(f"destination changed while planning: {error}")
+    else:
+        if final_destination_identities != (
+            destination_identity,
+            canonical_destination_identity,
+        ):
+            errors.append(f"destination changed while planning: {destination}")
 
     return _Plan(
         tuple(created),
@@ -487,11 +624,214 @@ def _plan_install(
         tuple(collisions),
         tuple(errors),
         tuple(previous_links),
+        destination_identity,
+        canonical_destination_identity,
+        tuple(unchanged_evidence),
+        tuple(skipped_evidence),
     )
 
 
 def _temporary_path(destination: Path, name: str, kind: str) -> Path:
     return destination / f".{name}.{kind}{TEMP_MARKER}{uuid.uuid4().hex}"
+
+
+def _open_absolute_directory(path: Path) -> list[int]:
+    if not path.is_absolute():
+        raise OSError(f"directory anchor is not absolute: {path}")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptors: list[int] = []
+    try:
+        current_fd = os.open(path.anchor, flags)
+        descriptors.append(current_fd)
+        for part in path.parts[1:]:
+            child_fd = os.open(part, flags, dir_fd=current_fd)
+            descriptors.append(child_fd)
+            entry = os.stat(part, dir_fd=current_fd, follow_symlinks=False)
+            if _DestinationHandle._identity(entry) != _DestinationHandle._identity(
+                os.fstat(child_fd)
+            ):
+                raise OSError(f"directory changed while anchoring: {path}")
+            current_fd = child_fd
+        return descriptors
+    except BaseException:
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except BaseException:
+                pass
+        raise
+
+
+def _close_descriptors(
+    descriptors: list[int],
+    *,
+    preserve: BaseException | None = None,
+) -> None:
+    pending: BaseException | None = None
+    for descriptor in reversed(descriptors):
+        try:
+            os.close(descriptor)
+        except BaseException as error:
+            if pending is None:
+                pending = error
+    if pending is not None and preserve is None:
+        raise pending
+
+
+def _read_file_at(
+    parent_fd: int,
+    name: str,
+    expected_entry_identity: tuple[int, int, int],
+    expected_target_identity: tuple[int, int, int],
+) -> bytes:
+    file_fd = os.open(name, os.O_RDONLY, dir_fd=parent_fd)
+    pending: BaseException | None = None
+    try:
+        entry_identity = _DestinationHandle._identity(
+            os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        )
+        opened_identity = _DestinationHandle._identity(os.fstat(file_fd))
+        if (
+            entry_identity != expected_entry_identity
+            or opened_identity != expected_target_identity
+        ):
+            raise OSError(f"file changed while anchoring: {name}")
+        chunks: list[bytes] = []
+        while chunk := os.read(file_fd, 1024 * 1024):
+            chunks.append(chunk)
+        if (
+            _DestinationHandle._identity(
+                os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            )
+            != expected_entry_identity
+            or _DestinationHandle._identity(os.fstat(file_fd))
+            != expected_target_identity
+        ):
+            raise OSError(f"file changed while reading: {name}")
+        return b"".join(chunks)
+    except BaseException as error:
+        pending = error
+        raise
+    finally:
+        _close_descriptors([file_fd], preserve=pending)
+
+
+def _revalidate_approved_skill(
+    handle: _DestinationHandle,
+    evidence: _ApprovedSkillEvidence,
+) -> None:
+    entry_path = handle.display / evidence.name
+    if handle.child_identity(entry_path) != evidence.entry_identity:
+        raise OSError(f"approved existing skill changed after planning: {entry_path}")
+
+    root_descriptors: list[int]
+    if evidence.raw_target is None:
+        assert handle.fd is not None
+        root_fd = os.open(
+            evidence.name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=handle.fd,
+        )
+        root_descriptors = [root_fd]
+    else:
+        if handle.child_readlink(entry_path) != evidence.raw_target:
+            raise OSError(
+                f"approved existing skill target changed after planning: {entry_path}"
+            )
+        lexical_target = Path(evidence.raw_target)
+        if not lexical_target.is_absolute():
+            lexical_target = handle.display / lexical_target
+        if lexical_target.resolve(strict=True) != evidence.root:
+            raise OSError(
+                f"approved existing skill resolved target changed: {entry_path}"
+            )
+        root_descriptors = _open_absolute_directory(evidence.root)
+
+    pending: BaseException | None = None
+    try:
+        root_fd = root_descriptors[-1]
+        if _DestinationHandle._identity(os.fstat(root_fd)) != evidence.root_identity:
+            raise OSError(
+                f"approved existing skill root changed after planning: {entry_path}"
+            )
+        skill_entry_identity = _DestinationHandle._identity(
+            os.stat("SKILL.md", dir_fd=root_fd, follow_symlinks=False)
+        )
+        if skill_entry_identity != evidence.skill_entry_identity:
+            raise OSError(
+                f"approved existing SKILL.md changed after planning: {entry_path}"
+            )
+        if evidence.skill_raw_target is None:
+            skill_target = evidence.root / "SKILL.md"
+        else:
+            if os.readlink("SKILL.md", dir_fd=root_fd) != evidence.skill_raw_target:
+                raise OSError(
+                    f"approved existing SKILL.md target changed: {entry_path}"
+                )
+            skill_target = Path(evidence.skill_raw_target)
+            if not skill_target.is_absolute():
+                skill_target = evidence.root / skill_target
+            skill_target = skill_target.resolve(strict=True)
+            if skill_target != evidence.skill_target:
+                raise OSError(
+                    f"approved existing SKILL.md resolved target changed: {entry_path}"
+                )
+        content = _read_file_at(
+            root_fd,
+            "SKILL.md",
+            evidence.skill_entry_identity,
+            evidence.skill_target_identity,
+        )
+    except BaseException as error:
+        pending = error
+        raise
+    finally:
+        _close_descriptors(root_descriptors, preserve=pending)
+
+    if hashlib.sha256(content).hexdigest() != evidence.skill_sha256:
+        raise OSError(f"approved existing SKILL.md content changed: {entry_path}")
+    try:
+        document = parse_skill_document(content.decode("utf-8"))
+    except (UnicodeError, ValueError) as error:
+        raise OSError(f"approved existing SKILL.md became invalid: {error}") from error
+    if document.name != evidence.document_name or document.name != evidence.name:
+        raise OSError(
+            f"approved existing SKILL.md name changed after planning: {entry_path}"
+        )
+
+
+def _revalidate_plan(
+    handle: _DestinationHandle,
+    source: _Source,
+    plan: _Plan,
+) -> None:
+    if plan.destination_identity is not None:
+        current_identities = _destination_identities(handle.display)
+        if current_identities != (
+            plan.destination_identity,
+            plan.canonical_destination_identity,
+        ) or handle.identity != plan.destination_identity:
+            raise OSError(f"destination changed after planning: {handle.display}")
+
+    for evidence in plan.unchanged_evidence:
+        path = handle.display / evidence.name
+        if (
+            handle.child_identity(path) != evidence.identity
+            or not handle.child_is_symlink(path)
+            or handle.child_readlink(path) != evidence.raw_target
+        ):
+            raise OSError(f"managed link changed after planning: {path}")
+        raw_target = Path(evidence.raw_target)
+        if not raw_target.is_absolute():
+            raw_target = handle.display / raw_target
+        if (
+            raw_target.resolve(strict=True) != evidence.resolved_target
+            or evidence.resolved_target != source.root / evidence.name
+        ):
+            raise OSError(f"managed link target changed after planning: {path}")
+
+    for evidence in plan.skipped_evidence:
+        _revalidate_approved_skill(handle, evidence)
 
 
 def _create_symlink_exclusive(
@@ -964,6 +1304,7 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
     committed = False
     try:
         handle.open()
+        _revalidate_plan(handle, source, plan)
         for name in sorted((*plan.created, *plan.updated)):
             handle.verify_final()
             path = destination / name
@@ -1099,6 +1440,7 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
         for item in updates:
             assert item.recovery is not None
             _cleanup_owned_path(handle, _owned_record(owned_paths, item.recovery))
+        _revalidate_plan(handle, source, plan)
         handle.verify_final()
         committed = True
     except BaseException as error:
@@ -1168,8 +1510,6 @@ def install(
         return InstallResult(
             planned_created=plan.created,
             planned_updated=plan.updated,
-            unchanged=plan.unchanged,
-            skipped=plan.skipped,
             collisions=plan.collisions,
             errors=outcome.errors,
             warnings=outcome.warnings,
