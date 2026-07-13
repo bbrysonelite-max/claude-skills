@@ -17,6 +17,7 @@ ENTRY_KEYS = {
     "notes",
 }
 SAFE_SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+FRONTMATTER_KEY = re.compile(r"[A-Za-z0-9_-]+\Z")
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,140 @@ class Manifest:
     @property
     def entries(self) -> tuple[SkillEntry, ...]:
         return self.sources + self.promoted
+
+
+@dataclass(frozen=True)
+class SkillDocument:
+    name: str
+    description: str
+    body: str
+
+
+def _parse_quoted_scalar(value: str, field: str) -> str:
+    if value.startswith('"'):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError) as error:
+            raise ValueError(f"malformed {field} scalar") from error
+        if not isinstance(parsed, str):
+            raise ValueError(f"{field} must be a string")
+        return parsed
+    if value.startswith("'"):
+        if len(value) < 2 or not value.endswith("'"):
+            raise ValueError(f"malformed {field} scalar")
+        return value[1:-1].replace("''", "'")
+    return value.strip()
+
+
+def _parse_block_scalar(lines: list[str], style: str) -> str:
+    if not lines:
+        return ""
+    nonempty = [line for line in lines if line.strip()]
+    if any(line.startswith("\t") for line in nonempty):
+        raise ValueError("block scalar indentation must use spaces")
+    indent = min((len(line) - len(line.lstrip(" ")) for line in nonempty), default=0)
+    if nonempty and indent == 0:
+        raise ValueError("block scalar contents must be indented")
+    content = [line[indent:] if line.strip() else "" for line in lines]
+    if style == "|":
+        while content and not content[-1]:
+            content.pop()
+        return "\n".join(content) + ("\n" if content else "")
+
+    paragraphs: list[str] = []
+    current: list[str] = []
+    blank_count = 0
+    for line in content:
+        if line:
+            if blank_count and current:
+                paragraphs.append(" ".join(current))
+                paragraphs.extend("" for _ in range(blank_count - 1))
+                current = []
+            blank_count = 0
+            current.append(line)
+        else:
+            blank_count += 1
+    if current:
+        paragraphs.append(" ".join(current))
+    return "\n\n".join(paragraphs) + "\n"
+
+
+def parse_skill_document(text: str) -> SkillDocument:
+    """Parse the required source frontmatter and retain the body byte-for-byte."""
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        raise ValueError("SKILL.md is missing the opening frontmatter delimiter")
+
+    closing_index = next(
+        (
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.rstrip("\r\n") == "---"
+        ),
+        None,
+    )
+    if closing_index is None:
+        raise ValueError("SKILL.md is missing the closing frontmatter delimiter")
+
+    frontmatter = [line.rstrip("\r\n") for line in lines[1:closing_index]]
+    values: dict[str, str] = {}
+    index = 0
+    while index < len(frontmatter):
+        line = frontmatter[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            index += 1
+            continue
+        if line[:1].isspace() or ":" not in line:
+            raise ValueError(f"malformed frontmatter line: {line!r}")
+        key, raw_value = line.split(":", 1)
+        if FRONTMATTER_KEY.fullmatch(key) is None:
+            raise ValueError(f"malformed frontmatter key: {key!r}")
+        if key in values:
+            raise ValueError(f"duplicate frontmatter field: {key}")
+        value = raw_value.strip()
+        if key not in {"name", "description"}:
+            index += 1
+            if not value or re.fullmatch(r"[>|]", value):
+                while index < len(frontmatter):
+                    candidate = frontmatter[index]
+                    if candidate and not candidate[:1].isspace():
+                        break
+                    index += 1
+            continue
+        if re.fullmatch(r"[>|]", value):
+            block_lines: list[str] = []
+            index += 1
+            while index < len(frontmatter):
+                candidate = frontmatter[index]
+                if candidate and not candidate[:1].isspace():
+                    break
+                block_lines.append(candidate)
+                index += 1
+            values[key] = _parse_block_scalar(block_lines, value)
+            continue
+        values[key] = _parse_quoted_scalar(value, key)
+        index += 1
+
+    name = values.get("name")
+    description = values.get("description")
+    if not name:
+        raise ValueError("SKILL.md frontmatter requires a non-empty name")
+    if SAFE_SKILL_NAME.fullmatch(name) is None:
+        raise ValueError(f"unsafe skill name: {name!r}")
+    if description is None or not description.strip():
+        raise ValueError("SKILL.md frontmatter requires a non-empty description")
+    return SkillDocument(
+        name=name,
+        description=description,
+        body="".join(lines[closing_index + 1 :]),
+    )
+
+
+def render_skill_document(document: SkillDocument) -> str:
+    """Render normalized Codex frontmatter while preserving the source body."""
+    name = json.dumps(document.name, ensure_ascii=True)
+    description = json.dumps(document.description.rstrip("\n"), ensure_ascii=True)
+    return f"---\nname: {name}\ndescription: {description}\n---\n{document.body}"
 
 
 def _require_exact_keys(data: dict, expected: set[str], context: str) -> None:
