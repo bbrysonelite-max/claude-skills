@@ -1,12 +1,14 @@
+import io
 import json
 import os
 import stat
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.build import build_collection
+from scripts.build import BuildResult, build_collection, main
 from scripts.common import (
     Manifest,
     SkillEntry,
@@ -293,6 +295,56 @@ class BuildTests(unittest.TestCase):
 
         self.assertEqual(before, self.snapshot(self.output))
 
+    def test_backup_cleanup_failure_returns_warning_after_commit(self):
+        skill = self.make_skill()
+        resource = skill / "resource.txt"
+        resource.write_text("old output\n", encoding="utf-8")
+        build_collection(self.repo_root, manifest(entry()), self.output)
+        resource.write_text("new output\n", encoding="utf-8")
+
+        with patch(
+            "scripts.build._remove_generated_tree",
+            side_effect=OSError("cleanup denied"),
+        ):
+            result = build_collection(self.repo_root, manifest(entry()), self.output)
+
+        backups = list(self.output.parent.glob(f".{self.output.name}.backup-*"))
+        self.assertEqual(("sample",), result.built_names)
+        self.assertEqual(1, len(result.warnings))
+        self.assertIn("cleanup denied", result.warnings[0])
+        self.assertIn(backups[0].name, result.warnings[0])
+        self.assertEqual(
+            "new output\n",
+            (self.output / "sample" / "resource.txt").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            "old output\n",
+            (backups[0] / "sample" / "resource.txt").read_text(encoding="utf-8"),
+        )
+
+    def test_cli_prints_build_warnings_to_stderr_and_returns_success(self):
+        result = BuildResult(
+            output_dir=self.output.resolve(),
+            built_names=("sample",),
+            warnings=("orphan backup retained",),
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with (
+            patch("scripts.build.load_manifest", return_value=manifest(entry())),
+            patch("scripts.build.build_collection", return_value=result),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            exit_code = main(
+                ["--repo", str(self.repo_root), "--output", str(self.output)]
+            )
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Built 1 skills", stdout.getvalue())
+        self.assertIn("orphan backup retained", stderr.getvalue())
+
     def test_display_name_comes_from_hyphenated_output_name(self):
         self.make_skill("source-name", "A sufficiently useful source description.")
 
@@ -514,6 +566,9 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first_snapshot, self.snapshot(self.output))
         self.assertFalse(stale.exists())
+        self.assertEqual(
+            [], list(self.output.parent.glob(f".{self.output.name}.backup-*"))
+        )
 
     def test_build_does_not_mutate_source_files(self):
         skill = self.make_skill()
