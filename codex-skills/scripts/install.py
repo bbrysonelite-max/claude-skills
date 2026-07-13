@@ -85,18 +85,35 @@ class _ManagedLinkEvidence:
 
 
 @dataclass(frozen=True)
+class _ApprovedTreeEntry:
+    relative: str
+    kind: int
+    mode: int
+    device: int
+    inode: int
+    size: int | None = None
+    sha256: str | None = None
+    raw_target: str | None = None
+    resolved_relative: str | None = None
+    target_identity: tuple[int, int, int, int] | None = None
+
+
+@dataclass(frozen=True)
 class _ApprovedSkillEvidence:
     name: str
     entry_identity: tuple[int, int, int]
+    entry_mode: int
     raw_target: str | None
     root: Path
     root_identity: tuple[int, int, int]
+    root_mode: int
     skill_entry_identity: tuple[int, int, int]
     skill_raw_target: str | None
     skill_target: Path
     skill_target_identity: tuple[int, int, int]
     skill_sha256: str
     document_name: str
+    tree_snapshot: tuple[_ApprovedTreeEntry, ...]
 
 
 @dataclass(frozen=True)
@@ -455,25 +472,81 @@ def _path_identity(path: Path) -> tuple[int, int, int]:
 
 
 def _capture_approved_skill(path: Path, name: str) -> _ApprovedSkillEvidence:
-    entry_identity = _path_identity(path)
+    entry_info = path.lstat()
+    entry_identity = _DestinationHandle._identity(entry_info)
+    entry_mode = stat.S_IMODE(entry_info.st_mode)
     raw_target = os.readlink(path) if stat.S_ISLNK(entry_identity[2]) else None
     root = path.resolve(strict=True)
-    root_identity = _path_identity(root)
+    root_info = root.lstat()
+    root_identity = _DestinationHandle._identity(root_info)
+    root_mode = stat.S_IMODE(root_info.st_mode)
     if root_identity[2] != stat.S_IFDIR:
         raise OSError(f"approved existing skill is not a directory: {path}")
 
-    skill = root / "SKILL.md"
-    skill_entry_identity = _path_identity(skill)
-    skill_raw_target = (
-        os.readlink(skill) if stat.S_ISLNK(skill_entry_identity[2]) else None
+    destination_descriptors = _open_absolute_directory(
+        _DestinationHandle._canonical_path(path.parent)
     )
-    skill_target = skill.resolve(strict=True)
-    skill_target_identity = _path_identity(skill_target)
-    if skill_target_identity[2] != stat.S_IFREG:
-        raise OSError(f"approved existing SKILL.md is not a file: {skill}")
-    content = skill_target.read_bytes()
-    if _path_identity(skill_target) != skill_target_identity:
-        raise OSError(f"approved existing SKILL.md changed while planning: {skill}")
+    descriptors = list(destination_descriptors)
+    pending: BaseException | None = None
+    try:
+        destination_fd = destination_descriptors[-1]
+        anchored_entry = os.stat(name, dir_fd=destination_fd, follow_symlinks=False)
+        if _entry_signature(anchored_entry) != _entry_signature(entry_info):
+            raise OSError(f"approved existing skill changed while anchoring: {path}")
+        if raw_target is None:
+            root_fd = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=destination_fd,
+            )
+            descriptors.append(root_fd)
+        else:
+            if os.readlink(name, dir_fd=destination_fd) != raw_target:
+                raise OSError(
+                    f"approved existing skill target changed while anchoring: {path}"
+                )
+            lexical_target = Path(raw_target)
+            if not lexical_target.is_absolute():
+                lexical_target = path.parent / lexical_target
+            if lexical_target.resolve(strict=True) != root:
+                raise OSError(
+                    f"approved existing skill resolved target changed: {path}"
+                )
+            root_descriptors = _open_absolute_directory(root)
+            descriptors.extend(root_descriptors)
+            root_fd = root_descriptors[-1]
+        if _entry_signature(os.fstat(root_fd)) != _entry_signature(root_info):
+            raise OSError(
+                f"approved existing skill root changed while anchoring: {path}"
+            )
+
+        skill_info = os.stat("SKILL.md", dir_fd=root_fd, follow_symlinks=False)
+        skill_entry_identity = _DestinationHandle._identity(skill_info)
+        skill_raw_target = (
+            os.readlink("SKILL.md", dir_fd=root_fd)
+            if stat.S_ISLNK(skill_info.st_mode)
+            else None
+        )
+        skill_target = (root / "SKILL.md").resolve(strict=True)
+        skill_target_info = os.stat("SKILL.md", dir_fd=root_fd)
+        skill_target_identity = _DestinationHandle._identity(skill_target_info)
+        if skill_target_identity[2] != stat.S_IFREG:
+            raise OSError(
+                f"approved existing SKILL.md is not a file: {root / 'SKILL.md'}"
+            )
+        content = _read_file_at(
+            root_fd,
+            "SKILL.md",
+            skill_entry_identity,
+            skill_target_identity,
+        )
+        tree_snapshot = _snapshot_approved_tree(root_fd, root)
+    except BaseException as error:
+        pending = error
+        raise
+    finally:
+        _close_descriptors(descriptors, preserve=pending)
+
     try:
         document = parse_skill_document(content.decode("utf-8"))
     except (UnicodeError, ValueError) as error:
@@ -484,26 +557,21 @@ def _capture_approved_skill(path: Path, name: str) -> _ApprovedSkillEvidence:
         raise OSError(
             f"approved existing SKILL.md name changed while planning: {document.name!r}"
         )
-    if (
-        _path_identity(path) != entry_identity
-        or (raw_target is not None and os.readlink(path) != raw_target)
-        or _path_identity(root) != root_identity
-        or _path_identity(skill) != skill_entry_identity
-        or (skill_raw_target is not None and os.readlink(skill) != skill_raw_target)
-    ):
-        raise OSError(f"approved existing skill changed while planning: {path}")
     return _ApprovedSkillEvidence(
         name,
         entry_identity,
+        entry_mode,
         raw_target,
         root,
         root_identity,
+        root_mode,
         skill_entry_identity,
         skill_raw_target,
         skill_target,
         skill_target_identity,
         hashlib.sha256(content).hexdigest(),
         document.name,
+        tree_snapshot,
     )
 
 
@@ -716,17 +784,205 @@ def _read_file_at(
         _close_descriptors([file_fd], preserve=pending)
 
 
+def _entry_signature(info: os.stat_result) -> tuple[int, int, int, int]:
+    return (
+        stat.S_IFMT(info.st_mode),
+        stat.S_IMODE(info.st_mode),
+        info.st_dev,
+        info.st_ino,
+    )
+
+
+def _stat_relative_to_directory(
+    root_fd: int,
+    relative: Path,
+) -> os.stat_result:
+    parts = tuple(part for part in relative.parts if part not in ("", "."))
+    if any(part == ".." for part in parts):
+        raise OSError(f"relative target escapes approved skill: {relative}")
+    if not parts:
+        return os.fstat(root_fd)
+
+    descriptors: list[int] = []
+    pending: BaseException | None = None
+    try:
+        current_fd = root_fd
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        for part in parts[:-1]:
+            child_fd = os.open(part, flags, dir_fd=current_fd)
+            descriptors.append(child_fd)
+            entry = os.stat(part, dir_fd=current_fd, follow_symlinks=False)
+            if _entry_signature(entry) != _entry_signature(os.fstat(child_fd)):
+                raise OSError(
+                    f"approved directory changed while traversing: {relative}"
+                )
+            current_fd = child_fd
+        return os.stat(parts[-1], dir_fd=current_fd, follow_symlinks=False)
+    except BaseException as error:
+        pending = error
+        raise
+    finally:
+        _close_descriptors(descriptors, preserve=pending)
+
+
+def _snapshot_approved_tree(
+    root_fd: int,
+    root: Path,
+) -> tuple[_ApprovedTreeEntry, ...]:
+    entries: list[_ApprovedTreeEntry] = []
+
+    def walk(directory_fd: int, parent: Path) -> None:
+        names = tuple(sorted(os.listdir(directory_fd)))
+        for name in names:
+            relative = parent / name
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            kind, mode, device, inode = _entry_signature(info)
+            if kind == stat.S_IFREG:
+                identity = (device, inode, kind)
+                content = _read_file_at(directory_fd, name, identity, identity)
+                after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                if (
+                    _entry_signature(after) != (kind, mode, device, inode)
+                    or after.st_size != info.st_size
+                    or len(content) != info.st_size
+                ):
+                    raise OSError(
+                        f"approved file changed while snapshotting: {relative}"
+                    )
+                entries.append(
+                    _ApprovedTreeEntry(
+                        relative.as_posix(),
+                        kind,
+                        mode,
+                        device,
+                        inode,
+                        size=info.st_size,
+                        sha256=hashlib.sha256(content).hexdigest(),
+                    )
+                )
+                continue
+
+            if kind == stat.S_IFDIR:
+                entries.append(
+                    _ApprovedTreeEntry(
+                        relative.as_posix(),
+                        kind,
+                        mode,
+                        device,
+                        inode,
+                    )
+                )
+                child_fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory_fd,
+                )
+                pending: BaseException | None = None
+                try:
+                    if _entry_signature(os.fstat(child_fd)) != (
+                        kind,
+                        mode,
+                        device,
+                        inode,
+                    ):
+                        raise OSError(
+                            f"approved directory changed while opening: {relative}"
+                        )
+                    walk(child_fd, relative)
+                    after = os.stat(
+                        name,
+                        dir_fd=directory_fd,
+                        follow_symlinks=False,
+                    )
+                    if _entry_signature(after) != (kind, mode, device, inode):
+                        raise OSError(
+                            f"approved directory changed while snapshotting: {relative}"
+                        )
+                except BaseException as error:
+                    pending = error
+                    raise
+                finally:
+                    _close_descriptors([child_fd], preserve=pending)
+                continue
+
+            if kind == stat.S_IFLNK:
+                raw_target = os.readlink(name, dir_fd=directory_fd)
+                lexical_target = Path(raw_target)
+                if not lexical_target.is_absolute():
+                    lexical_target = root / relative.parent / lexical_target
+                try:
+                    resolved = lexical_target.resolve(strict=True)
+                    resolved_relative = resolved.relative_to(root)
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise OSError(
+                        f"approved symlink is broken or escaping: {relative}: {error}"
+                    ) from error
+                target = _stat_relative_to_directory(root_fd, resolved_relative)
+                target_kind, target_mode, target_device, target_inode = (
+                    _entry_signature(target)
+                )
+                after = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                if (
+                    _entry_signature(after) != (kind, mode, device, inode)
+                    or os.readlink(name, dir_fd=directory_fd) != raw_target
+                ):
+                    raise OSError(
+                        f"approved symlink changed while snapshotting: {relative}"
+                    )
+                entries.append(
+                    _ApprovedTreeEntry(
+                        relative.as_posix(),
+                        kind,
+                        mode,
+                        device,
+                        inode,
+                        raw_target=raw_target,
+                        resolved_relative=resolved_relative.as_posix(),
+                        target_identity=(
+                            target_kind,
+                            target_mode,
+                            target_device,
+                            target_inode,
+                        ),
+                    )
+                )
+                continue
+
+            entries.append(
+                _ApprovedTreeEntry(
+                    relative.as_posix(),
+                    kind,
+                    mode,
+                    device,
+                    inode,
+                )
+            )
+        if tuple(sorted(os.listdir(directory_fd))) != names:
+            raise OSError(f"approved directory changed while snapshotting: {parent}")
+
+    walk(root_fd, Path())
+    return tuple(entries)
+
+
 def _revalidate_approved_skill(
     handle: _DestinationHandle,
     evidence: _ApprovedSkillEvidence,
 ) -> None:
     entry_path = handle.display / evidence.name
-    if handle.child_identity(entry_path) != evidence.entry_identity:
+    assert handle.fd is not None
+    entry_info = os.stat(
+        evidence.name,
+        dir_fd=handle.fd,
+        follow_symlinks=False,
+    )
+    if (
+        _DestinationHandle._identity(entry_info) != evidence.entry_identity
+        or stat.S_IMODE(entry_info.st_mode) != evidence.entry_mode
+    ):
         raise OSError(f"approved existing skill changed after planning: {entry_path}")
 
     root_descriptors: list[int]
     if evidence.raw_target is None:
-        assert handle.fd is not None
         root_fd = os.open(
             evidence.name,
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -750,9 +1006,18 @@ def _revalidate_approved_skill(
     pending: BaseException | None = None
     try:
         root_fd = root_descriptors[-1]
-        if _DestinationHandle._identity(os.fstat(root_fd)) != evidence.root_identity:
+        root_info = os.fstat(root_fd)
+        if (
+            _DestinationHandle._identity(root_info) != evidence.root_identity
+            or stat.S_IMODE(root_info.st_mode) != evidence.root_mode
+        ):
             raise OSError(
                 f"approved existing skill root changed after planning: {entry_path}"
+            )
+        tree_snapshot = _snapshot_approved_tree(root_fd, evidence.root)
+        if tree_snapshot != evidence.tree_snapshot:
+            raise OSError(
+                f"approved existing skill tree changed after planning: {entry_path}"
             )
         skill_entry_identity = _DestinationHandle._identity(
             os.stat("SKILL.md", dir_fd=root_fd, follow_symlinks=False)

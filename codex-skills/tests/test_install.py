@@ -292,6 +292,153 @@ class InstallTests(unittest.TestCase):
         )
         self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
 
+    def test_approved_tree_mutations_invalidate_real_and_symlink_plans(self):
+        from scripts import install as install_module
+
+        scenarios = (
+            ("escaping-link", "after-open"),
+            ("escaping-link", "during-publish"),
+            ("broken-link", "after-open"),
+            ("broken-link", "during-publish"),
+            ("replace-file", "after-open"),
+            ("replace-directory", "after-open"),
+            ("delete-file", "after-open"),
+            ("delete-directory", "after-open"),
+            ("mutate-content", "during-publish"),
+        )
+        for form in ("directory", "symlink"):
+            for mutation, timing in scenarios:
+                with self.subTest(form=form, mutation=mutation, timing=timing):
+                    case_root = self.root / f"tree-{form}-{mutation}-{timing}"
+                    destination = case_root / "skills"
+                    if form == "directory":
+                        approved = make_external_skill(destination, "last30days")
+                    else:
+                        approved = make_external_skill(
+                            case_root / "external",
+                            "last30days",
+                        )
+                        destination.mkdir(parents=True)
+                        (destination / "last30days").symlink_to(
+                            approved,
+                            target_is_directory=True,
+                        )
+                    notes = approved / "notes.txt"
+                    notes.write_bytes(b"approved notes\n")
+                    resources = approved / "resources"
+                    resources.mkdir()
+                    (resources / "keep.txt").write_bytes(b"keep resource\n")
+                    outside = case_root / "outside.txt"
+                    outside.write_bytes(b"outside\n")
+                    mutation_path: Path
+                    expected_bytes: bytes | None = None
+                    expected_link: str | None = None
+
+                    def mutate_tree():
+                        nonlocal mutation_path, expected_bytes, expected_link
+                        if mutation == "escaping-link":
+                            mutation_path = approved / "escape.txt"
+                            mutation_path.symlink_to(outside)
+                            expected_link = os.readlink(mutation_path)
+                        elif mutation == "broken-link":
+                            mutation_path = approved / "broken.txt"
+                            mutation_path.symlink_to(approved / "missing.txt")
+                            expected_link = os.readlink(mutation_path)
+                        elif mutation == "replace-file":
+                            mutation_path = notes
+                            mutation_path.unlink()
+                            expected_bytes = b"replacement notes\n"
+                            mutation_path.write_bytes(expected_bytes)
+                        elif mutation == "replace-directory":
+                            shutil.rmtree(resources)
+                            resources.mkdir()
+                            mutation_path = resources / "replacement.txt"
+                            expected_bytes = b"replacement resource\n"
+                            mutation_path.write_bytes(expected_bytes)
+                        elif mutation == "delete-file":
+                            mutation_path = notes
+                            mutation_path.unlink()
+                        elif mutation == "delete-directory":
+                            mutation_path = resources
+                            shutil.rmtree(mutation_path)
+                        else:
+                            mutation_path = notes
+                            expected_bytes = b"mutated approved notes\n"
+                            mutation_path.write_bytes(expected_bytes)
+
+                    changed = False
+                    real_open = install_module._DestinationHandle.open
+                    real_publish = install_module._publish_without_overwrite
+
+                    def open_then_mutate(handle):
+                        nonlocal changed
+                        real_open(handle)
+                        mutate_tree()
+                        changed = True
+
+                    def publish_then_mutate(*args, **kwargs):
+                        nonlocal changed
+                        result = real_publish(*args, **kwargs)
+                        if not changed:
+                            mutate_tree()
+                            changed = True
+                        return result
+
+                    if timing == "after-open":
+                        with patch.object(
+                            install_module._DestinationHandle,
+                            "open",
+                            autospec=True,
+                            side_effect=open_then_mutate,
+                        ):
+                            result = install(
+                                COLLECTION,
+                                destination,
+                                skip_existing=("last30days",),
+                            )
+                    else:
+                        with patch(
+                            "scripts.install._publish_without_overwrite",
+                            side_effect=publish_then_mutate,
+                        ):
+                            result = install(
+                                COLLECTION,
+                                destination,
+                                skip_existing=("last30days",),
+                            )
+
+                    self.assertTrue(changed)
+                    self.assertTrue(result.errors)
+                    self.assertEqual((), result.created)
+                    self.assertEqual((), result.updated)
+                    self.assertEqual((), result.unchanged)
+                    self.assertEqual((), result.skipped)
+                    self.assertEqual(57, len(result.planned_created))
+                    self.assertEqual(
+                        ["last30days"],
+                        [path.name for path in destination.iterdir()],
+                    )
+                    self.assertEqual(
+                        [], list(destination.glob(".*.codex-install-*"))
+                    )
+                    if mutation in ("delete-file", "delete-directory"):
+                        self.assertFalse(mutation_path.exists())
+                    elif expected_link is not None:
+                        self.assertTrue(mutation_path.is_symlink())
+                        self.assertEqual(expected_link, os.readlink(mutation_path))
+                    else:
+                        self.assertEqual(expected_bytes, mutation_path.read_bytes())
+
+                    if mutation in ("escaping-link", "broken-link"):
+                        report = validate_collection(
+                            REPOSITORY_ROOT,
+                            installed=destination,
+                            approved_existing=("last30days",),
+                            collect_evidence=False,
+                            structural_only=True,
+                        )
+                        self.assertFalse(report.ok)
+
     def test_updates_a_managed_link_pointing_to_wrong_direct_child(self):
         install(COLLECTION, self.destination)
         path = self.destination / "agent-reach"
