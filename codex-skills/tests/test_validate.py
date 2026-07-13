@@ -10,6 +10,7 @@ from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts.common import SkillEntry
 from scripts.validate import (
     CollectionReport,
     InjectedDefectValidation,
@@ -17,6 +18,8 @@ from scripts.validate import (
     RegressionValidation,
     SkillValidation,
     SyntaxValidation,
+    _dependency_status,
+    _structural_fingerprint,
     main,
     render_report,
     run_injected_defect_validation,
@@ -240,6 +243,64 @@ class SkillValidationTests(unittest.TestCase):
         self.assertTrue(
             any("scripts/missing.py" in error for error in result.errors)
         )
+
+    def test_validation_rejects_missing_dot_slash_inline_resource(self):
+        skill = make_skill(self.root, body="Run `./scripts/missing.py` now.\n")
+
+        result = validate_skill(skill)
+
+        self.assertTrue(
+            any("./scripts/missing.py" in error for error in result.errors)
+        )
+
+    def test_validation_rejects_broken_reference_style_link(self):
+        skill = make_skill(
+            self.root,
+            body="Read the [guide][g].\n\n[g]: references/missing.md\n",
+        )
+
+        result = validate_skill(skill)
+
+        self.assertTrue(
+            any("references/missing.md" in error for error in result.errors)
+        )
+
+    def test_validation_rejects_broken_shortcut_reference_style_link(self):
+        skill = make_skill(
+            self.root,
+            body="Read the [guide].\n\n[guide]: docs/missing.md\n",
+        )
+
+        result = validate_skill(skill)
+
+        self.assertTrue(any("docs/missing.md" in error for error in result.errors))
+
+    def test_validation_accepts_balanced_parentheses_in_link_destination(self):
+        skill = make_skill(
+            self.root,
+            body="Read [the guide](references/a(b).md).\n",
+        )
+        references = skill / "references"
+        references.mkdir()
+        (references / "a(b).md").write_text("# Guide\n", encoding="utf-8")
+
+        self.assertEqual((), validate_skill(skill).errors)
+
+    def test_validation_accepts_escaped_titled_reference_and_anchor_links(self):
+        skill = make_skill(
+            self.root,
+            body=(
+                "Read [escaped](references/a\\(b\\).md \"Guide\"), "
+                "[angle](<references/a(b).md> 'Guide'), and [reference][g]. "
+                "Jump to [section](#section).\n\n"
+                "[g]: references/a(b).md \"Reference guide\"\n"
+            ),
+        )
+        references = skill / "references"
+        references.mkdir()
+        (references / "a(b).md").write_text("# Guide\n", encoding="utf-8")
+
+        self.assertEqual((), validate_skill(skill).errors)
 
     def test_validation_allows_external_anchor_and_templated_links(self):
         skill = make_skill(
@@ -488,7 +549,7 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual("1", runner.call_args_list[1].kwargs["env"]["UV_OFFLINE"])
         self.assertEqual("1", runner.call_args_list[2].kwargs["env"]["UV_OFFLINE"])
 
-    def test_regression_validation_records_observed_counts_and_internal_mode(self):
+    def test_regression_validation_records_observed_counts_without_ambient_bypass(self):
         version = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="Python 3.14.5\n", stderr=""
         )
@@ -514,11 +575,49 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertTrue(results[0].passed)
         self.assertEqual(193, results[0].tests_run)
         self.assertEqual("Python 3.14.5", results[0].interpreter)
-        self.assertEqual(
-            "1",
-            runner.call_args_list[1].kwargs["env"][
-                "CODEX_VALIDATE_INTERNAL_TEST_MODE"
-            ],
+        self.assertNotIn(
+            "CODEX_VALIDATE_INTERNAL_TEST_MODE",
+            runner.call_args_list[1].kwargs.get("env", {}),
+        )
+
+    def test_ambient_internal_mode_cannot_suppress_requested_evidence(self):
+        self.make_source_and_output()
+        with (
+            patch.dict(os.environ, {"CODEX_VALIDATE_INTERNAL_TEST_MODE": "1"}),
+            patch("scripts.validate.EXPECTED_SKILL_COUNT", 1),
+            patch("scripts.validate.EXPECTED_SOURCE_COUNT", 1),
+            patch("scripts.validate.EXPECTED_PROMOTED_COUNT", 0),
+            patch(
+                "scripts.validate.EXPECTED_CLASS_COUNTS",
+                {"adapted": 0, "dependency-required": 0, "native": 1},
+            ),
+            patch("scripts.validate.run_regression_validation", return_value=()),
+            patch("scripts.validate.run_injected_defect_validation", return_value=()),
+        ):
+            report = self.validate_fixture(collect_evidence=True)
+
+        self.assertTrue(
+            any(
+                "regression suite evidence is missing" in error
+                for error in report.errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "injected defect validation evidence is missing" in error
+                for error in report.errors
+            )
+        )
+
+    def test_structural_only_rejects_requested_evidence_as_suppressed(self):
+        self.make_source_and_output()
+
+        report = validate_collection(
+            self.repo, collect_evidence=True, structural_only=True
+        )
+
+        self.assertTrue(
+            any("evidence was requested but suppressed" in error for error in report.errors)
         )
 
     def test_injected_defect_validation_observes_required_categories(self):
@@ -563,6 +662,134 @@ class CollectionValidationTests(unittest.TestCase):
         report = self.validate_fixture(installed=installed)
         self.assertTrue(any("installed" in error for error in report.errors))
 
+    def test_installed_validation_accepts_explicitly_approved_existing_skill(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+        make_skill(installed, "last30days")
+
+        report = self.validate_fixture(
+            installed=installed, approved_existing=("last30days",)
+        )
+
+        self.assertEqual(0, report.installed_count)
+        self.assertEqual(1, report.approved_existing_count)
+        self.assertFalse(any("installed" in error for error in report.errors))
+
+    def test_installed_validation_rejects_invalid_or_unapproved_existing_skill(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+        existing = make_skill(installed, "last30days")
+        (existing / "SKILL.md").write_text(
+            '---\nname: "wrong-name"\ndescription: "Useful fixture."\n---\n',
+            encoding="utf-8",
+        )
+
+        invalid = self.validate_fixture(
+            installed=installed, approved_existing=("last30days",)
+        )
+        unapproved = self.validate_fixture(installed=installed)
+
+        self.assertTrue(any("frontmatter name" in error for error in invalid.errors))
+        self.assertTrue(any("must be a managed symlink" in error for error in unapproved.errors))
+
+    def test_installed_validation_rejects_escaping_symlink_in_approved_existing(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+        existing = make_skill(installed, "last30days")
+        outside = self.repo / "outside.txt"
+        outside.write_text("outside\n", encoding="utf-8")
+        (existing / "escape.txt").symlink_to(outside)
+
+        report = self.validate_fixture(
+            installed=installed, approved_existing=("last30days",)
+        )
+
+        self.assertTrue(any("symlink escapes" in error for error in report.errors))
+
+    def test_dependency_status_requires_every_mandatory_probe_to_succeed(self):
+        entry = SkillEntry(
+            "tiger-whitepaper",
+            None,
+            "tiger-whitepaper",
+            "dependency-required",
+            ("Node.js", "Google Chrome"),
+            "Fixture.",
+        )
+
+        with (
+            patch(
+                "scripts.validate.shutil.which",
+                side_effect=lambda command: "/usr/bin/node" if command == "node" else None,
+            ),
+            patch("scripts.validate.Path.is_file", return_value=False),
+        ):
+            status = _dependency_status(entry)
+
+        self.assertEqual("missing", status.status)
+        self.assertEqual(
+            (("Node.js", "available"), ("Google Chrome", "missing")),
+            tuple((probe.dependency, probe.status) for probe in status.probes),
+        )
+
+    def test_dependency_status_marks_unknown_mandatory_probe_partial(self):
+        entry = SkillEntry(
+            "sample",
+            None,
+            "sample",
+            "dependency-required",
+            ("Unknown bespoke runtime",),
+            "Fixture.",
+        )
+
+        status = _dependency_status(entry)
+
+        self.assertEqual("partial", status.status)
+        self.assertEqual("not-probed", status.probes[0].status)
+
+    def test_dependency_status_unknown_keeps_mixed_entry_partial(self):
+        entry = SkillEntry(
+            "sample",
+            None,
+            "sample",
+            "dependency-required",
+            ("Unknown bespoke runtime", "publishing credentials"),
+            "Fixture.",
+        )
+
+        status = _dependency_status(entry)
+
+        self.assertEqual("partial", status.status)
+        self.assertEqual(
+            ("not-probed", "credential-dependent"),
+            tuple(probe.status for probe in status.probes),
+        )
+
+    def test_dependency_status_accepts_macos_chrome_application_probe(self):
+        entry = SkillEntry(
+            "sample",
+            None,
+            "sample",
+            "dependency-required",
+            ("Google Chrome",),
+            "Fixture.",
+        )
+
+        with (
+            patch("scripts.validate.shutil.which", return_value=None),
+            patch(
+                "scripts.validate.Path.is_file",
+                autospec=True,
+                side_effect=lambda path: "Google Chrome.app" in str(path),
+            ),
+        ):
+            status = _dependency_status(entry)
+
+        self.assertEqual("available", status.status)
+        self.assertEqual("available", status.probes[0].status)
+
     def test_canonical_collection_has_observed_58_skill_contract(self):
         with patch(
             "scripts.validate.run_official_validation",
@@ -598,6 +825,18 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertIn("| `whitelabel-radar` |", text)
         self.assertEqual(40, len(report.dependency_statuses))
         self.assertIn("No live external workflows", text)
+
+    def test_report_lists_exact_per_dependency_probe_statuses(self):
+        with patch(
+            "scripts.validate.run_official_validation",
+            side_effect=self.passed_official,
+        ):
+            report = validate_collection(REPOSITORY_ROOT)
+
+        text = render_report(report)
+
+        self.assertRegex(text, r"`Node\.js` \((?:available|missing)\)")
+        self.assertRegex(text, r"`Google Chrome` \((?:available|missing)\)")
 
     def test_report_renders_observed_fallback_regressions_and_injections(self):
         report = replace(
@@ -670,13 +909,89 @@ class CliTests(unittest.TestCase):
                 patch("scripts.validate.validate_collection", return_value=report) as validator,
                 redirect_stdout(io.StringIO()),
             ):
-                self.assertEqual(0, main(["--repo", str(repo)]))
+                self.assertEqual(1, main(["--repo", str(repo)]))
+            self.assertIn(
+                "**Overall:** FAIL",
+                (repo / "codex-skills" / "VALIDATION.md").read_text(encoding="utf-8"),
+            )
 
         validator.assert_called_once_with(
             repo,
             installed=None,
+            approved_existing=(),
             source_only=False,
             collect_evidence=True,
+            structural_only=False,
+        )
+
+    def test_ambient_internal_mode_cannot_write_pass_without_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            report = CollectionReport.empty(repo)
+            with (
+                patch.dict(os.environ, {"CODEX_VALIDATE_INTERNAL_TEST_MODE": "1"}),
+                patch("scripts.validate.validate_collection", return_value=report),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(1, main(["--repo", str(repo)]))
+
+            text = (repo / "codex-skills" / "VALIDATION.md").read_text(encoding="utf-8")
+            self.assertIn("**Overall:** FAIL", text)
+            self.assertIn("**NOT OBSERVED**", text)
+
+    def test_explicit_test_child_path_skips_evidence_and_report_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            report = CollectionReport.empty(repo)
+            with (
+                patch("scripts.validate.validate_collection", return_value=report) as validator,
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(0, main(["--repo", str(repo), "--test-child"]))
+
+            self.assertFalse((repo / "codex-skills" / "VALIDATION.md").exists())
+            validator.assert_called_once_with(
+                repo,
+                installed=None,
+                approved_existing=(),
+                source_only=False,
+                collect_evidence=False,
+                structural_only=False,
+            )
+
+    def test_cli_forwards_repeatable_approved_existing_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            installed = repo / "installed"
+            report = CollectionReport.empty(repo)
+            with (
+                patch("scripts.validate.validate_collection", return_value=report) as validator,
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(
+                    0,
+                    main(
+                        [
+                            "--repo",
+                            str(repo),
+                            "--installed",
+                            str(installed),
+                            "--approved-existing",
+                            "last30days",
+                            "--approved-existing",
+                            "existing-two",
+                            "--test-child",
+                        ]
+                    ),
+                )
+
+        validator.assert_called_once_with(
+            repo,
+            installed=installed,
+            approved_existing=("last30days", "existing-two"),
+            source_only=False,
+            collect_evidence=False,
+            structural_only=False,
         )
 
     def test_source_only_and_check_are_rejected_as_incompatible(self):
@@ -705,7 +1020,14 @@ class CliTests(unittest.TestCase):
             exit_code = main(["--repo", "/tmp/repo", "--json"])
 
         self.assertEqual(1, exit_code)
-        self.assertEqual(["broken"], json.loads(stdout.getvalue())["errors"])
+        self.assertEqual(
+            [
+                "broken",
+                "requested full report regression evidence is missing",
+                "requested full report injected defect evidence is missing",
+            ],
+            json.loads(stdout.getvalue())["errors"],
+        )
         self.assertEqual("", stderr.getvalue())
 
     def test_default_cli_writes_text_report_and_check_detects_drift(self):
@@ -719,8 +1041,8 @@ class CliTests(unittest.TestCase):
                 patch("scripts.validate.validate_collection", return_value=report),
                 redirect_stdout(stdout),
             ):
-                self.assertEqual(0, main(["--repo", str(repo)]))
-            self.assertEqual(expected, report_path.read_text(encoding="utf-8"))
+                self.assertEqual(1, main(["--repo", str(repo)]))
+            self.assertNotEqual(expected, report_path.read_text(encoding="utf-8"))
             report_path.write_text("stale\n", encoding="utf-8")
             with (
                 patch("scripts.validate.validate_collection", return_value=report),
@@ -728,6 +1050,67 @@ class CliTests(unittest.TestCase):
                 redirect_stderr(io.StringIO()),
             ):
                 self.assertEqual(1, main(["--repo", str(repo), "--check"]))
+
+    def test_check_ignores_volatile_observations_when_fingerprint_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            report_path = repo / "codex-skills" / "VALIDATION.md"
+            report_path.parent.mkdir(parents=True)
+            fingerprint = _structural_fingerprint(repo)
+            report_path.write_text(
+                "# Old observed report\n\n"
+                "- **Observed date:** 2099-01-01\n"
+                f"- **Structural fingerprint:** `{fingerprint}`\n"
+                "- Python 9.99 from /another/host\n"
+                "- Google Chrome (available on another host)\n",
+                encoding="utf-8",
+            )
+            report = replace(
+                CollectionReport.empty(repo), structural_fingerprint=fingerprint
+            )
+            with (
+                patch("scripts.validate.validate_collection", return_value=report) as validator,
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(0, main(["--repo", str(repo), "--check"]))
+
+        validator.assert_called_once_with(
+            repo,
+            installed=None,
+            approved_existing=(),
+            source_only=False,
+            collect_evidence=False,
+            structural_only=True,
+        )
+
+    def test_check_rejects_structural_mutation_after_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            generated = repo / "codex-skills" / "skills" / "sample"
+            generated.mkdir(parents=True)
+            payload = generated / "SKILL.md"
+            payload.write_text("before\n", encoding="utf-8")
+            old_fingerprint = _structural_fingerprint(repo)
+            report_path = repo / "codex-skills" / "VALIDATION.md"
+            report_path.write_text(
+                f"- **Structural fingerprint:** `{old_fingerprint}`\n",
+                encoding="utf-8",
+            )
+            payload.write_text("after\n", encoding="utf-8")
+            new_fingerprint = _structural_fingerprint(repo)
+            report = replace(
+                CollectionReport.empty(repo), structural_fingerprint=new_fingerprint
+            )
+
+            with (
+                patch("scripts.validate.validate_collection", return_value=report),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(1, main(["--repo", str(repo), "--check"]))
+
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
 
 
 if __name__ == "__main__":

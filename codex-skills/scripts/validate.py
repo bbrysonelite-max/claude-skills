@@ -9,7 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
@@ -77,12 +77,18 @@ EXCLUDED_RESOURCE_PARTS = {
     "node_modules",
     "vendor",
 }
-MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 LOCAL_RESOURCE = re.compile(
     r"(?<![\w./-])"
-    r"((?:scripts|references|assets|templates|verticals|bin)/"
-    r"[A-Za-z0-9_.@%+/-]+)"
+    r"((?:\./)?(?:scripts|references|assets|templates|verticals|bin)/"
+    r"[A-Za-z0-9_.@%+()/\\-]+)"
 )
+REFERENCE_DEFINITION = re.compile(
+    r"(?m)^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*"
+)
+REPORT_FINGERPRINT = re.compile(
+    r"(?m)^- \*\*Structural fingerprint:\*\* `([0-9a-f]{64})`$"
+)
+STRUCTURAL_REPORT_SCHEMA = 1
 TARGET_PROJECT_RESOURCE_LINES = {
     ("here-now", "references/REFERENCE.md"): frozenset(
         {
@@ -178,10 +184,17 @@ class InjectedDefectValidation:
 
 
 @dataclass(frozen=True)
+class DependencyProbe:
+    dependency: str
+    status: str
+
+
+@dataclass(frozen=True)
 class DependencyStatus:
     name: str
     dependencies: tuple[str, ...]
     status: str
+    probes: tuple[DependencyProbe, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -219,6 +232,8 @@ class CollectionReport:
     dependency_statuses: tuple[DependencyStatus, ...]
     installed_count: int | None
     source_only: bool
+    approved_existing_count: int | None = None
+    structural_fingerprint: str = ""
     regression_results: tuple[RegressionValidation, ...] = ()
     injected_defect_results: tuple[InjectedDefectValidation, ...] = ()
 
@@ -246,6 +261,7 @@ class CollectionReport:
             dependency_statuses=(),
             installed_count=None,
             source_only=False,
+            structural_fingerprint=_structural_fingerprint(Path(repo_root)),
         )
 
     @property
@@ -327,10 +343,20 @@ class CollectionReport:
                     "name": result.name,
                     "dependencies": list(result.dependencies),
                     "status": result.status,
+                    "probes": [
+                        {
+                            "dependency": probe.dependency,
+                            "status": probe.status,
+                        }
+                        for probe in result.probes
+                    ],
                 }
                 for result in self.dependency_statuses
             ],
             "installed_count": self.installed_count,
+            "managed_installed_count": self.installed_count,
+            "approved_existing_count": self.approved_existing_count,
+            "structural_fingerprint": self.structural_fingerprint,
             "errors": list(self.errors),
             "warnings": list(self.warnings),
         }
@@ -400,13 +426,142 @@ def _is_templated_target(target: str) -> bool:
     ) or target.lower() in {"url", "path", "file", "filename"}
 
 
+def _unescape_markdown(value: str) -> str:
+    return re.sub(r"\\([\\`*{}\[\]()#+.!_<>-])", r"\1", value)
+
+
 def _link_target(raw: str) -> str:
-    target = raw.strip()
-    if target.startswith("<") and ">" in target:
-        target = target[1 : target.index(">")]
-    elif " " in target:
-        target = target.split(" ", 1)[0]
+    target = _unescape_markdown(raw.strip())
     return unquote(target).split("#", 1)[0].split("?", 1)[0]
+
+
+def _closing_bracket(text: str, start: int) -> int | None:
+    depth = 1
+    index = start + 1
+    while index < len(text):
+        character = text[index]
+        if character == "\\":
+            index += 2
+            continue
+        if character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _markdown_destination(
+    text: str, start: int, *, inline: bool
+) -> tuple[str, int] | None:
+    index = start
+    while index < len(text) and text[index] in " \t":
+        index += 1
+    if index >= len(text) or text[index] == "\n":
+        return None
+    if text[index] == "<":
+        index += 1
+        characters: list[str] = []
+        while index < len(text):
+            character = text[index]
+            if character == "\\" and index + 1 < len(text):
+                characters.extend((character, text[index + 1]))
+                index += 2
+                continue
+            if character == ">":
+                return "".join(characters), index + 1
+            if character == "\n":
+                return None
+            characters.append(character)
+            index += 1
+        return None
+
+    depth = 0
+    characters = []
+    while index < len(text):
+        character = text[index]
+        if character == "\\" and index + 1 < len(text):
+            characters.extend((character, text[index + 1]))
+            index += 2
+            continue
+        if character == "(":
+            depth += 1
+            characters.append(character)
+            index += 1
+            continue
+        if character == ")":
+            if inline and depth == 0:
+                return "".join(characters), index + 1
+            if depth > 0:
+                depth -= 1
+            characters.append(character)
+            index += 1
+            continue
+        if character in " \t\n" and depth == 0:
+            return "".join(characters), index
+        characters.append(character)
+        index += 1
+    if inline:
+        return None
+    return "".join(characters), index
+
+
+def _reference_label(value: str) -> str:
+    return " ".join(_unescape_markdown(value).split()).casefold()
+
+
+def _markdown_destinations(text: str) -> tuple[tuple[str, int], ...]:
+    definitions: dict[str, str] = {}
+    for match in REFERENCE_DEFINITION.finditer(text):
+        parsed = _markdown_destination(text, match.end(), inline=False)
+        if parsed is not None and parsed[0]:
+            definitions[_reference_label(match.group(1))] = parsed[0]
+
+    destinations: list[tuple[str, int]] = []
+    index = 0
+    while index < len(text):
+        if text[index] != "[" or (index > 0 and text[index - 1] == "\\"):
+            index += 1
+            continue
+        close = _closing_bracket(text, index)
+        if close is None:
+            break
+        next_index = close + 1
+        line_start = text.rfind("\n", 0, index) + 1
+        if (
+            next_index < len(text)
+            and text[next_index] == ":"
+            and not text[line_start:index].strip()
+        ):
+            index = next_index + 1
+            continue
+        if next_index < len(text) and text[next_index] == "(":
+            parsed = _markdown_destination(text, next_index + 1, inline=True)
+            if parsed is not None:
+                destinations.append((parsed[0], index))
+                index = parsed[1]
+                continue
+        elif next_index < len(text) and text[next_index] == "[":
+            reference_close = _closing_bracket(text, next_index)
+            if reference_close is not None:
+                label = text[next_index + 1 : reference_close]
+                if not label:
+                    label = text[index + 1 : close]
+                target = definitions.get(_reference_label(label))
+                if target is not None:
+                    destinations.append((target, index))
+                index = reference_close + 1
+                continue
+        else:
+            target = definitions.get(
+                _reference_label(text[index + 1 : close])
+            )
+            if target is not None:
+                destinations.append((target, index))
+        index = close + 1
+    return tuple(destinations)
 
 
 def _check_local_target(
@@ -459,17 +614,19 @@ def _validate_markdown(
             errors.append(
                 f"{relative}:{line_number}: active Claude path is not allowlisted"
             )
-    for match in MARKDOWN_LINK.finditer(text):
-        target = _link_target(match.group(1))
+    for raw_target, offset in _markdown_destinations(text):
+        target = _link_target(raw_target)
         _check_local_target(
             skill_root,
             markdown_path,
             target,
-            _line_number(text, match.start()),
+            _line_number(text, offset),
             errors,
         )
     for match in LOCAL_RESOURCE.finditer(text):
-        target = match.group(1).rstrip(".,;:")
+        target = _unescape_markdown(match.group(1)).rstrip(".,;:")
+        while target.endswith(")") and target.count(")") > target.count("("):
+            target = target[:-1]
         if _is_templated_target(target):
             continue
         line_number = _line_number(text, match.start())
@@ -622,7 +779,7 @@ def _python_executables() -> tuple[str, ...]:
     return tuple(executables)
 
 
-def validate_skill(path: Path) -> SkillValidation:
+def validate_skill(path: Path, *, run_syntax: bool = True) -> SkillValidation:
     """Validate one generated skill and accumulate every independent failure."""
     skill_root = Path(path)
     errors: list[str] = []
@@ -709,7 +866,7 @@ def validate_skill(path: Path) -> SkillValidation:
             continue
         _validate_markdown(skill_root, markdown_path, text or "", errors)
 
-    syntax_results = _syntax_checks(skill_root)
+    syntax_results = _syntax_checks(skill_root) if run_syntax else ()
     for result in syntax_results:
         errors.extend(result.errors)
     return SkillValidation(
@@ -811,6 +968,47 @@ def _directory_snapshot(root: Path) -> dict[str, tuple[str, int, str]]:
         elif path.is_file():
             snapshot[relative] = ("file", mode, sha256(path.read_bytes()).hexdigest())
     return snapshot
+
+
+def _structural_fingerprint(repo_root: Path) -> str:
+    root = Path(repo_root).expanduser().resolve(strict=False)
+    codex_root = root / "codex-skills"
+    contract_paths = (
+        codex_root / "manifest.yaml",
+        codex_root / "source-hashes.json",
+        codex_root / "scripts" / "adapt.py",
+        codex_root / "scripts" / "build.py",
+        codex_root / "scripts" / "common.py",
+        codex_root / "scripts" / "validate.py",
+    )
+    contract: dict[str, tuple[str, int, str]] = {}
+    for path in contract_paths:
+        relative = path.relative_to(root).as_posix()
+        try:
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            if path.is_file() and not path.is_symlink():
+                contract[relative] = (
+                    "file",
+                    mode,
+                    sha256(path.read_bytes()).hexdigest(),
+                )
+            elif path.is_symlink():
+                contract[relative] = ("symlink", mode, os.readlink(path))
+            else:
+                contract[relative] = ("missing", mode, "")
+        except OSError:
+            contract[relative] = ("missing", 0, "")
+    payload = {
+        "schema": STRUCTURAL_REPORT_SCHEMA,
+        "contract": contract,
+        "generated": _directory_snapshot(codex_root / "skills")
+        if (codex_root / "skills").is_dir()
+        else {},
+    }
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
 
 
 def _validate_expected_parity(
@@ -1098,8 +1296,6 @@ def run_regression_validation(repo_root: Path) -> tuple[RegressionValidation, ..
             interpreter = (
                 version_result.stdout + version_result.stderr
             ).strip() or Path(executable).name
-            environment = dict(os.environ)
-            environment["CODEX_VALIDATE_INTERNAL_TEST_MODE"] = "1"
             completed = subprocess.run(
                 [
                     executable,
@@ -1115,7 +1311,6 @@ def run_regression_validation(repo_root: Path) -> tuple[RegressionValidation, ..
                 capture_output=True,
                 text=True,
                 timeout=600,
-                env=environment,
             )
             output = completed.stdout + completed.stderr
             match = re.search(r"Ran\s+(\d+)\s+tests?\b", output)
@@ -1266,100 +1461,168 @@ def run_injected_defect_validation() -> tuple[InjectedDefectValidation, ...]:
 
 
 def _dependency_status(entry: SkillEntry) -> DependencyStatus:
-    joined = " ".join(entry.dependencies).lower()
-    if any(
-        marker in joined
-        for marker in (
-            "credential",
-            "auth",
-            "api key",
-            "ssh",
-            "user and adc access",
-            "publishing",
-        )
-    ):
-        status = "credential-dependent"
-    elif any(
-        marker in joined
-        for marker in (
-            " mcp",
-            "connected ",
-            "browser",
-            "network",
-            "repository",
-            "environment",
-            "service",
-            "deployment",
-            "source api",
-            "local ",
-            "git repository",
-            "platform backend",
-        )
-    ):
-        status = "connector/runtime-dependent"
-    else:
-        command_aliases = {
-            "bash": "bash",
-            "curl": "curl",
-            "file": "file",
-            "gcloud cli": "gcloud",
-            "cloud-sql-proxy": "cloud-sql-proxy",
-            "node.js": "node",
-            "python 3.12 or newer": "python3.12",
-        }
-        commands = [
-            command_aliases[dependency.lower()]
-            for dependency in entry.dependencies
-            if dependency.lower() in command_aliases
-        ]
-        if commands and all(shutil.which(command) for command in commands):
-            status = "available"
-        elif commands:
-            status = "missing"
+    command_aliases = {
+        "bash": ("bash",),
+        "curl": ("curl",),
+        "file": ("file",),
+        "gcloud cli": ("gcloud",),
+        "cloud-sql-proxy": ("cloud-sql-proxy",),
+        "node.js": ("node",),
+        "python 3.12 or newer": ("python3.12",),
+    }
+    credential_markers = (
+        "credential",
+        "auth",
+        "api key",
+        "ssh",
+        "user and adc access",
+        "publishing",
+    )
+    connector_markers = (
+        " mcp",
+        "connected ",
+        "browser",
+        "network",
+        "repository",
+        "environment",
+        "service",
+        "deployment",
+        "source api",
+        "local ",
+        "git repository",
+        "platform backend",
+    )
+    probes: list[DependencyProbe] = []
+    for dependency in entry.dependencies:
+        normalized = dependency.casefold()
+        if normalized == "google chrome":
+            chrome_paths = (
+                Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+                Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            )
+            available = any(
+                shutil.which(command)
+                for command in ("google-chrome", "chromium", "chromium-browser")
+            ) or any(path.is_file() for path in chrome_paths)
+            probe_status = "available" if available else "missing"
+        elif normalized in command_aliases:
+            available = any(
+                shutil.which(command) for command in command_aliases[normalized]
+            )
+            probe_status = "available" if available else "missing"
+        elif any(marker in normalized for marker in credential_markers):
+            probe_status = "credential-dependent"
+        elif any(marker in normalized for marker in connector_markers):
+            probe_status = "connector-dependent"
         else:
-            status = "connector/runtime-dependent"
-    return DependencyStatus(entry.output, entry.dependencies, status)
+            probe_status = "not-probed"
+        probes.append(DependencyProbe(dependency, probe_status))
+
+    observed = {probe.status for probe in probes}
+    if "missing" in observed:
+        status = "missing"
+    elif "not-probed" in observed or not probes:
+        status = "partial"
+    elif "credential-dependent" in observed:
+        status = "credential-dependent"
+    elif "connector-dependent" in observed:
+        status = "connector-dependent"
+    else:
+        status = "available"
+    return DependencyStatus(entry.output, entry.dependencies, status, tuple(probes))
+
+
+def _validate_approved_existing(path: Path, name: str) -> tuple[str, ...]:
+    errors: list[str] = []
+    if path.is_symlink() or not path.is_dir():
+        return ("approved existing skill must be a real directory",)
+    text, read_error = _read_text(path / "SKILL.md")
+    if read_error:
+        errors.append(read_error)
+    elif text is not None:
+        keys = _frontmatter_keys(text)
+        if len(keys) != 2 or set(keys) != {"name", "description"}:
+            errors.append("SKILL.md frontmatter must contain only name and description")
+        try:
+            document = parse_skill_document(text)
+        except ValueError as error:
+            errors.append(f"SKILL.md invalid frontmatter: {error}")
+        else:
+            if document.name != name:
+                errors.append(
+                    f"SKILL.md frontmatter name {document.name!r} does not match folder"
+                )
+    _validate_symlinks(path, errors)
+    return tuple(errors)
 
 
 def _validate_installed(
     installed: Path,
     output_root: Path,
     expected_names: set[str],
+    approved_existing: tuple[str, ...],
     errors: list[str],
-) -> int:
+) -> tuple[int, int]:
     installed_root = Path(installed).expanduser()
-    if not installed_root.is_dir():
+    if installed_root.is_symlink() or not installed_root.is_dir():
         errors.append(f"installed skill root does not exist: {installed_root}")
-        return 0
-    satisfied = 0
+        return 0, 0
+    approved = set(approved_existing)
+    invalid_approvals = sorted(
+        name
+        for name in approved
+        if SAFE_SKILL_NAME.fullmatch(name) is None or name not in expected_names
+    )
+    if invalid_approvals:
+        errors.append(
+            "approved existing skill names are invalid or unmanaged: "
+            + ", ".join(invalid_approvals)
+        )
+    managed_count = 0
+    approved_count = 0
     for name in sorted(expected_names):
         path = installed_root / name
-        if not path.is_symlink():
+        if path.is_symlink():
+            try:
+                target = path.resolve(strict=True)
+            except (FileNotFoundError, RuntimeError) as error:
+                errors.append(f"installed skill {name} is a broken link: {error}")
+                continue
+            if target != (output_root / name).resolve(strict=False):
+                errors.append(f"installed skill {name} links to an unexpected target")
+                continue
+            managed_count += 1
+            continue
+        if name not in approved:
             errors.append(f"installed skill {name} must be a managed symlink")
             continue
-        try:
-            target = path.resolve(strict=True)
-        except (FileNotFoundError, RuntimeError) as error:
-            errors.append(f"installed skill {name} is a broken link: {error}")
+        validation_errors = _validate_approved_existing(path, name)
+        if validation_errors:
+            errors.extend(
+                f"installed skill {name}: {error}" for error in validation_errors
+            )
             continue
-        if target != (output_root / name).resolve(strict=False):
-            errors.append(f"installed skill {name} links to an unexpected target")
-            continue
-        satisfied += 1
-    return satisfied
+        approved_count += 1
+    return managed_count, approved_count
 
 
 def validate_collection(
     repo_root: Path,
     installed: Path | None = None,
     *,
+    approved_existing: tuple[str, ...] = (),
     source_only: bool = False,
     collect_evidence: bool = False,
+    structural_only: bool = False,
 ) -> CollectionReport:
     """Validate protected inputs and, unless source-only, all generated outputs."""
     root = Path(repo_root).expanduser().resolve(strict=False)
     errors: list[str] = []
     warnings: list[str] = []
+    if structural_only and collect_evidence:
+        errors.append(
+            "full evidence was requested but suppressed by structural-only validation"
+        )
     source_hash_count, source_hashes_match, source_errors = _validate_source_hashes(root)
     errors.extend(source_errors)
     manifest: Manifest | None = None
@@ -1394,6 +1657,7 @@ def validate_collection(
             dependency_statuses=(),
             installed_count=None,
             source_only=True,
+            structural_fingerprint=_structural_fingerprint(root),
         )
 
     output_root = root / "codex-skills" / "skills"
@@ -1425,7 +1689,8 @@ def validate_collection(
         errors.append("extra output skill folders: " + ", ".join(extra_names))
 
     skill_results = tuple(
-        validate_skill(output_root / name) for name in sorted(actual_names)
+        validate_skill(output_root / name, run_syntax=not structural_only)
+        for name in sorted(actual_names)
     )
     for result in skill_results:
         errors.extend(f"{result.name}: {error}" for error in result.errors)
@@ -1449,41 +1714,51 @@ def validate_collection(
             dependency_preflight,
             dependency_secret,
         ) = _validate_runtime_contracts(manifest, output_root, errors)
-        dependency_statuses = tuple(
-            _dependency_status(entry)
-            for entry in sorted(manifest.entries, key=lambda item: item.output)
-            if entry.conversion == "dependency-required"
-        )
+        if not structural_only:
+            dependency_statuses = tuple(
+                _dependency_status(entry)
+                for entry in sorted(manifest.entries, key=lambda item: item.output)
+                if entry.conversion == "dependency-required"
+            )
         _validate_expected_parity(root, manifest, output_root, errors)
 
     skill_paths = tuple(output_root / name for name in sorted(actual_names))
-    official_results = run_official_validation(skill_paths)
-    if len(official_results) != EXPECTED_SKILL_COUNT:
-        errors.append(
-            f"official validator must return {EXPECTED_SKILL_COUNT} results, "
-            f"found {len(official_results)}"
+    official_results: tuple[OfficialValidation, ...] = ()
+    if not structural_only:
+        official_results = run_official_validation(skill_paths)
+        if len(official_results) != EXPECTED_SKILL_COUNT:
+            errors.append(
+                f"official validator must return {EXPECTED_SKILL_COUNT} results, "
+                f"found {len(official_results)}"
+            )
+        official_failures = tuple(
+            result for result in official_results if not result.passed
         )
-    official_failures = tuple(result for result in official_results if not result.passed)
-    distinct_official_failures = {result.output for result in official_failures}
-    if (
-        len(official_failures) > 1
-        and len(distinct_official_failures) == 1
-        and "failed to fetch" in next(iter(distinct_official_failures), "").lower()
-    ):
-        detail = next(iter(distinct_official_failures)) or "no diagnostic output"
-        errors.append(
-            f"official validator blocked for all {len(official_failures)} skills by "
-            f"shared uv dependency resolution: {detail}"
-        )
-    else:
-        for result in official_failures:
-            detail = result.output or "no diagnostic output"
-            errors.append(f"{result.name}: official validator failed: {detail}")
+        distinct_official_failures = {result.output for result in official_failures}
+        if (
+            len(official_failures) > 1
+            and len(distinct_official_failures) == 1
+            and "failed to fetch" in next(iter(distinct_official_failures), "").lower()
+        ):
+            detail = next(iter(distinct_official_failures)) or "no diagnostic output"
+            errors.append(
+                f"official validator blocked for all {len(official_failures)} skills by "
+                f"shared uv dependency resolution: {detail}"
+            )
+        else:
+            for result in official_failures:
+                detail = result.output or "no diagnostic output"
+                errors.append(f"{result.name}: official validator failed: {detail}")
 
     installed_count: int | None = None
+    approved_existing_count: int | None = None
     if installed is not None:
-        installed_count = _validate_installed(
-            Path(installed), output_root, expected_names, errors
+        installed_count, approved_existing_count = _validate_installed(
+            Path(installed),
+            output_root,
+            expected_names,
+            approved_existing,
+            errors,
         )
 
     regression_results: tuple[RegressionValidation, ...] = ()
@@ -1493,8 +1768,7 @@ def validate_collection(
         and len(manifest.entries) == EXPECTED_SKILL_COUNT
         and len(actual_names) == EXPECTED_SKILL_COUNT
     )
-    internal_test_mode = os.environ.get("CODEX_VALIDATE_INTERNAL_TEST_MODE") == "1"
-    if evidence_required and collect_evidence and not internal_test_mode:
+    if evidence_required and collect_evidence and not structural_only:
         regression_results = run_regression_validation(root)
         injected_defect_results = run_injected_defect_validation()
         if not regression_results:
@@ -1538,6 +1812,8 @@ def validate_collection(
         dependency_statuses=dependency_statuses,
         installed_count=installed_count,
         source_only=False,
+        approved_existing_count=approved_existing_count,
+        structural_fingerprint=_structural_fingerprint(root),
         regression_results=regression_results,
         injected_defect_results=injected_defect_results,
     )
@@ -1592,6 +1868,7 @@ def render_report(report: CollectionReport) -> str:
         "# Codex Skills Validation",
         "",
         f"- **Observed date:** {report.generated_on}",
+        f"- **Structural fingerprint:** `{report.structural_fingerprint}`",
         f"- **Overall:** {status}",
         f"- **Collection:** {report.skill_count} total; "
         f"{classes.get('native', 0)} native; {classes.get('adapted', 0)} adapted; "
@@ -1614,8 +1891,10 @@ def render_report(report: CollectionReport) -> str:
             else f"- **Injected defect checks:** **{injection_status}**"
         ),
         (
-            f"- **Installability:** {report.installed_count}/{report.skill_count} generated "
-            "names satisfied by installed managed links"
+            f"- **Installability:** {report.installed_count} managed links; "
+            f"{report.approved_existing_count or 0} approved existing directories; "
+            f"{(report.installed_count or 0) + (report.approved_existing_count or 0)}/"
+            f"{report.skill_count} generated names satisfied"
             if report.installed_count is not None
             else "- **Installability:** generated names and resources validated; personal "
             "installation not inspected"
@@ -1739,7 +2018,7 @@ def render_report(report: CollectionReport) -> str:
             "",
             "## Dependency-Gated Skills",
             "",
-            "Statuses are non-secret observations only. Connector/runtime-dependent does "
+            "Statuses are non-secret observations only. Connector-dependent does "
             "not claim that a connector is available.",
             "",
             "| Skill | Exact mandatory dependencies | Observed preflight status |",
@@ -1747,7 +2026,9 @@ def render_report(report: CollectionReport) -> str:
         ]
     )
     for item in report.dependency_statuses:
-        dependencies = "<br>".join(f"`{dependency}`" for dependency in item.dependencies)
+        dependencies = "<br>".join(
+            f"`{probe.dependency}` ({probe.status})" for probe in item.probes
+        )
         lines.append(f"| `{item.name}` | {dependencies} | {item.status} |")
     lines.extend(
         [
@@ -1773,28 +2054,59 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate generated Codex skills.")
     parser.add_argument("--repo", type=Path, default=default_repo)
     parser.add_argument("--installed", type=Path)
+    parser.add_argument("--approved-existing", action="append", default=[])
     parser.add_argument("--source-only", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--test-child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.source_only and args.check:
         parser.error("--source-only cannot be combined with --check")
+    if args.test_child and (args.source_only or args.check):
+        parser.error("--test-child cannot be combined with --source-only or --check")
+    if args.approved_existing and args.installed is None:
+        parser.error("--approved-existing requires --installed")
 
     report = validate_collection(
         args.repo,
         installed=args.installed,
+        approved_existing=tuple(args.approved_existing),
         source_only=args.source_only,
-        collect_evidence=not args.source_only,
+        collect_evidence=not args.source_only and not args.check and not args.test_child,
+        structural_only=args.check,
     )
+    evidence_requested = not args.source_only and not args.check and not args.test_child
+    if evidence_requested:
+        missing_evidence: list[str] = []
+        if not report.regression_results:
+            missing_evidence.append("requested full report regression evidence is missing")
+        if not report.injected_defect_results:
+            missing_evidence.append(
+                "requested full report injected defect evidence is missing"
+            )
+        if missing_evidence:
+            report = replace(
+                report,
+                errors=report.errors
+                + tuple(
+                    error for error in missing_evidence if error not in report.errors
+                ),
+            )
     rendered = render_report(report)
     report_path = args.repo / "codex-skills" / "VALIDATION.md"
     report_current = True
     if args.check:
         try:
-            report_current = report_path.read_text(encoding="utf-8") == rendered
+            committed = report_path.read_text(encoding="utf-8")
+            match = REPORT_FINGERPRINT.search(committed)
+            report_current = bool(
+                match
+                and report.structural_fingerprint
+                and match.group(1) == report.structural_fingerprint
+            )
         except OSError:
             report_current = False
-    elif not args.json and not args.source_only:
+    elif not args.json and not args.source_only and not args.test_child:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         with report_path.open("w", encoding="utf-8", newline="") as output:
             output.write(rendered)
