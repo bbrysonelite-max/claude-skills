@@ -298,12 +298,17 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ),
     ("closing-ritual", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 1, ".codex/sessions"),
+        ExpectedRewrite(
+            re.compile(r"\bTodoWrite\b"), 1, "Codex task checklist"
+        ),
     ),
     ("doc-keeper", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 2, ".codex/sessions"),
+        ExpectedRewrite(re.compile(r"Agent\("), 1),
     ),
     ("tiger-doc-keeper", "SKILL.md"): (
         ExpectedRewrite(re.compile(r"\.claude/sessions"), 2, ".codex/sessions"),
+        ExpectedRewrite(re.compile(r"Agent\("), 1),
     ),
     ("page-rethink", "SKILL.md"): (
         ExpectedRewrite(
@@ -349,6 +354,13 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
             "source of truth Codex loads from",
         ),
         ExpectedRewrite(
+            re.compile(
+                re.escape("live dir IS the work tree Claude loads from")
+            ),
+            1,
+            "live dir IS the work tree Codex loads from",
+        ),
+        ExpectedRewrite(
             re.compile(re.escape("~/.claude/agents/")), 1, "~/.agents/"
         ),
     ),
@@ -382,10 +394,16 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ExpectedRewrite(
             re.compile(re.escape("~/.claude/skills/")), 2, "~/.codex/skills/"
         ),
+        ExpectedRewrite(
+            re.compile(re.escape("--client claude-code")), 1, "--client codex"
+        ),
     ),
     ("allsup-leads-veterans", "SKILL.md"): (
         ExpectedRewrite(
             re.compile(re.escape("~/.claude/skills/")), 2, "~/.codex/skills/"
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("--client claude-code")), 1, "--client codex"
         ),
     ),
     ("tiger-leader-hunt", "SKILL.md"): (
@@ -398,6 +416,19 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ("truth-keeper", "SKILL.md"): (
         ExpectedRewrite(
             re.compile(re.escape("~/.claude/skills/")), 1, "~/.codex/skills/"
+        ),
+        ExpectedRewrite(
+            re.compile(r"\bTodoWrite\b"), 1, "Codex task checklist"
+        ),
+    ),
+    ("signal-mine", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(r"\bWebSearch\b"), 2, "Codex web search"
+        ),
+    ),
+    ("whitelabel-radar", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(r"\bWebSearch\b"), 1, "Codex web search"
         ),
     ),
     ("vault-hygiene", "SKILL.md"): (
@@ -501,6 +532,12 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ExpectedRewrite(re.compile(r"(?m)^WebSearch\((\".*\")\)$"), 11),
         ExpectedRewrite(re.compile(r"\bWebSearches\b"), 7),
         ExpectedRewrite(re.compile(r"\bWebSearch\b"), 85),
+        ExpectedRewrite(
+            re.compile(r"\bAskUserQuestion\b"), 2, "Codex user-input request"
+        ),
+        ExpectedRewrite(
+            re.compile(r"\bRead tool\b"), 3, "file-reading capability"
+        ),
         ExpectedRewrite(
             re.compile(
                 r"(?ms)^# STEP 0: STALE-CLONE SELF-CHECK.*?^---\n"
@@ -786,21 +823,22 @@ def _adapt_named_text(
     text = text.replace("$HOME/.claude/skills/", "$HOME/.codex/skills/")
     text = text.replace("~/.claude/skills/", "~/.codex/skills/")
 
-    safe_boundary_rewrites = (
-        (re.compile(r"\bAskUserQuestion\b"), "Codex user-input request"),
-        (re.compile(r"\bTodoWrite\b"), "Codex task checklist"),
-        (re.compile(r"\bBash tool\b"), "shell execution capability"),
-        (re.compile(r"\bRead tool\b"), "file-reading capability"),
-        (re.compile(r"\bWrite tool\b"), "file-editing capability"),
-        (re.compile(r"\bWebFetch\b"), "Codex web fetch"),
-        (re.compile(r"\bWebSearch\b"), "Codex web search"),
-        (re.compile(r"\bAgent tool\b"), "optional delegation capability"),
-        (re.compile(r"\bTask tool\b"), "optional delegated-task capability"),
-        (re.compile(r"Task\("), "optional delegated task ("),
-        (re.compile(r"Agent\("), "optional delegation ("),
-    )
-    for pattern, replacement in safe_boundary_rewrites:
-        text = pattern.sub(replacement, text)
+    if not strict:
+        safe_boundary_rewrites = (
+            (re.compile(r"\bAskUserQuestion\b"), "Codex user-input request"),
+            (re.compile(r"\bTodoWrite\b"), "Codex task checklist"),
+            (re.compile(r"\bBash tool\b"), "shell execution capability"),
+            (re.compile(r"\bRead tool\b"), "file-reading capability"),
+            (re.compile(r"\bWrite tool\b"), "file-editing capability"),
+            (re.compile(r"\bWebFetch\b"), "Codex web fetch"),
+            (re.compile(r"\bWebSearch\b"), "Codex web search"),
+            (re.compile(r"\bAgent tool\b"), "optional delegation capability"),
+            (re.compile(r"\bTask tool\b"), "optional delegated-task capability"),
+            (re.compile(r"Task\("), "optional delegated task ("),
+            (re.compile(r"Agent\("), "optional delegation ("),
+        )
+        for pattern, replacement in safe_boundary_rewrites:
+            text = pattern.sub(replacement, text)
     return text
 
 

@@ -117,9 +117,16 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("Claude is a proper name here.", result)
 
     def test_unvalidated_snippet_does_not_trigger_known_source_count_checks(self):
-        result = adapt_text("page-rethink", "Claude is a proper name here.\n")
+        result = adapt_text(
+            "page-rethink",
+            "Claude is a proper name here. Use AskUserQuestion, then WebSearch.\n",
+        )
 
         self.assertIn("Claude is a proper name here.", result)
+        self.assertIn("Codex user-input request", result)
+        self.assertIn("Codex web search", result)
+        self.assertNotIn("AskUserQuestion", result)
+        self.assertNotIn("WebSearch", result)
         self.assertIn("## Codex Runtime", result)
 
     def test_page_rethink_uses_an_installed_browser_skill(self):
@@ -148,11 +155,15 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("Delegation is optional", result)
 
     def test_cross_skill_paths_resolve_from_codex_skill_roots(self):
-        result = self.adapt_source("allsup-leads-ssdi")
+        ssdi = self.adapt_source("allsup-leads-ssdi")
+        veterans = self.adapt_source("allsup-leads-veterans")
 
-        self.assertNotIn("~/.claude/skills/", result)
-        self.assertIn("~/.codex/skills", result)
-        self.assertIn("current collection", result)
+        for result in (ssdi, veterans):
+            self.assertNotIn("~/.claude/skills/", result)
+            self.assertIn("~/.codex/skills", result)
+            self.assertIn("--client codex", result)
+            self.assertNotIn("--client claude-code", result)
+            self.assertIn("current collection", result)
 
     def test_library_helpers_receive_explicit_codex_roots(self):
         miner = self.adapt_source("skill-miner")
@@ -205,6 +216,31 @@ class AdapterContractTests(unittest.TestCase):
                 source,
                 entry=self.entries["context-keeper"],
             )
+
+    def test_operational_tool_phrase_count_drift_fails_for_every_full_source(self):
+        cases = (
+            ("closing-ritual", "TodoWrite"),
+            ("truth-keeper", "TodoWrite"),
+            ("whitelabel-radar", "WebSearch"),
+            ("signal-mine", "WebSearch"),
+            ("last30days", "AskUserQuestion"),
+            ("last30days", "Read tool"),
+            ("last30days", "WebSearch"),
+            ("doc-keeper", "Agent("),
+            ("tiger-doc-keeper", "Agent("),
+        )
+
+        for skill_name, phrase in cases:
+            with self.subTest(skill=skill_name, phrase=phrase):
+                drifted = source_body(skill_name).replace(
+                    phrase, "DRIFTED_TOOL_PHRASE", 1
+                )
+                with self.assertRaisesRegex(ValueError, f"{skill_name}.*drift"):
+                    adapt_text(
+                        skill_name,
+                        drifted,
+                        entry=self.entries[skill_name],
+                    )
 
     def test_truth_keeper_skill_path_is_an_expected_source_contract(self):
         drifted = source_body("truth-keeper").replace(
@@ -268,6 +304,8 @@ class AdapterContractTests(unittest.TestCase):
 
         self.assertIn("source of truth Codex loads from", librarian)
         self.assertNotIn("Claude Code loads", librarian)
+        self.assertIn("live dir IS the work tree Codex loads from", librarian)
+        self.assertNotIn("live dir IS the work tree Claude loads from", librarian)
         self.assertIn("`AGENTS_DIR=~/.agents`", librarian)
         self.assertIn("`AGENTS_SRC=~/.agents`", librarian)
         self.assertNotIn("~/.claude/agents/", librarian)
@@ -277,6 +315,28 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("read-only", miner_reference)
         self.assertIn("historical", vault)
         self.assertIn("read-only", vault)
+
+    def test_exact_runtime_wording_count_drift_fails_visibly(self):
+        cases = (
+            (
+                "skills-librarian",
+                "live dir IS the work tree Claude loads from",
+            ),
+            ("allsup-leads-ssdi", "--client claude-code"),
+            ("allsup-leads-veterans", "--client claude-code"),
+        )
+
+        for skill_name, phrase in cases:
+            with self.subTest(skill=skill_name):
+                drifted = source_body(skill_name).replace(
+                    phrase, "drifted-runtime", 1
+                )
+                with self.assertRaisesRegex(ValueError, f"{skill_name}.*drift"):
+                    adapt_text(
+                        skill_name,
+                        drifted,
+                        entry=self.entries[skill_name],
+                    )
 
     def test_every_non_native_runtime_unconditionally_prohibits_secret_values(self):
         for entry in self.manifest.sources:
@@ -400,6 +460,26 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             for skill_name, marker in group_markers.items():
                 self.assertIn(marker, generated[skill_name], skill_name)
 
+            operational_patterns = {
+                "AskUserQuestion": re.compile(r"\bAskUserQuestion\b"),
+                "TodoWrite": re.compile(r"\bTodoWrite\b"),
+                "Bash tool": re.compile(r"\bBash tool\b"),
+                "Read tool": re.compile(r"\bRead tool\b"),
+                "Write tool": re.compile(r"\bWrite tool\b"),
+                "WebFetch": re.compile(r"\bWebFetch\b"),
+                "WebSearch": re.compile(r"\bWebSearch\b"),
+                "Agent tool": re.compile(r"\bAgent tool\b"),
+                "Task tool": re.compile(r"\bTask tool\b"),
+                "Task call": re.compile(r"Task\("),
+                "Agent call": re.compile(r"Agent\("),
+            }
+            operational_hits = []
+            for skill_name, text in generated.items():
+                for label, pattern in operational_patterns.items():
+                    if pattern.search(text):
+                        operational_hits.append(f"{skill_name}: {label}")
+            self.assertEqual([], operational_hits)
+
             prohibited_patterns = {
                 "AskUserQuestion": re.compile(r"AskUserQuestion"),
                 "Agent call": re.compile(r"Agent\("),
@@ -416,6 +496,10 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
                     r"(?: capability)?)\("
                 ),
                 "Claude Desktop config": re.compile(r"claude_desktop_config"),
+                "Claude live work tree": re.compile(
+                    re.escape("live dir IS the work tree Claude loads from")
+                ),
+                "Claude client flag": re.compile(r"--client claude-code"),
             }
             hits = []
             for path in output.rglob("*.md"):
