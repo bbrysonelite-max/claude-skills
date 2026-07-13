@@ -165,19 +165,19 @@ def collect_sessions(root: Path, limit: int = 0) -> list[SessionRecord]:
             continue
         candidates.append((mtime, path.relative_to(root).as_posix(), path))
     candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
-    if limit > 0:
-        candidates = candidates[:limit]
-    candidates.sort(key=lambda candidate: (candidate[0], candidate[1]))
-    sessions: list[SessionRecord] = []
-    for _, _, path in candidates:
+    selected: list[tuple[int, str, SessionRecord]] = []
+    for mtime, relative_path, path in candidates:
         record = (
             _read_rollout(root, path)
             if path.suffix == ".jsonl"
             else _read_context_snapshot(root, path)
         )
         if record is not None:
-            sessions.append(record)
-    return sessions
+            selected.append((mtime, relative_path, record))
+            if limit > 0 and len(selected) == limit:
+                break
+    selected.sort(key=lambda session: (session[0], session[1]))
+    return [record for _, _, record in selected]
 
 
 def _render(sessions: Iterable[SessionRecord]) -> str:

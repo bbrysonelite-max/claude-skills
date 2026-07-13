@@ -45,6 +45,25 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             text=True,
         )
 
+    def _assert_limit_backfills_invalid_newest(
+        self, newest_content: str
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "sessions"
+            newest = root / "a-newest.jsonl"
+            older = root / "z-older-valid.jsonl"
+            self._write_rollout(older, "OLDER_VALID_MARKER")
+            newest.write_text(newest_content, encoding="utf-8")
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(newest, ns=(2_000_000_000, 2_000_000_000))
+            output = Path(temporary_directory) / "digest.txt"
+
+            completed = self._run_helper(root, output, "--limit", "1")
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("sessions: 1", completed.stdout)
+            self.assertIn("OLDER_VALID_MARKER", digest)
+
     def test_nested_rollouts_and_context_snapshots_produce_safe_nonempty_batches(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "sessions"
@@ -221,6 +240,26 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             self.assertIn("NEWEST_SNAPSHOT_MARKER", digest)
             self.assertNotIn("OLDER_SNAPSHOT_MARKER", digest)
             self.assertNotIn("ROLLOUT_MARKER", digest)
+
+    def test_limit_backfills_after_newest_empty_rollout(self):
+        self._assert_limit_backfills_invalid_newest("")
+
+    def test_limit_backfills_after_newest_malformed_rollout(self):
+        self._assert_limit_backfills_invalid_newest("{not valid json}\n")
+
+    def test_limit_backfills_after_newest_tool_only_rollout(self):
+        tool_only_event = {
+            "timestamp": "2026-07-12T10:00:00Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "name": "shell",
+                "arguments": "{}",
+            },
+        }
+        self._assert_limit_backfills_invalid_newest(
+            json.dumps(tool_only_event) + "\n"
+        )
 
     def test_selected_sessions_render_oldest_first_by_mtime(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
