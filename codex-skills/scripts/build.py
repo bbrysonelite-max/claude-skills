@@ -39,7 +39,9 @@ EXCLUDED_DIRECTORIES = {
     ".pytest_cache",
     ".ruff_cache",
     "__pycache__",
+    "cache",
     "logs",
+    "runtime",
 }
 EXCLUDED_FILENAMES = {".DS_Store"}
 
@@ -66,15 +68,19 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     return path == parent or path.is_relative_to(parent)
 
 
-def _validate_output_path(repo_root: Path, sources: list[Path], output_dir: Path) -> Path:
+def _validate_output_path(
+    repo_root: Path, protected_paths: list[Path], output_dir: Path
+) -> Path:
     resolved_output = output_dir.expanduser().resolve(strict=False)
     if output_dir.is_symlink():
         raise ValueError(f"unsafe output path is a symlink: {output_dir}")
     if resolved_output == repo_root or repo_root.is_relative_to(resolved_output):
         raise ValueError(f"unsafe output path overlaps repository root: {output_dir}")
-    for source in sources:
-        if _is_relative_to(resolved_output, source) or _is_relative_to(source, resolved_output):
-            raise ValueError(f"unsafe output path overlaps source skill: {output_dir}")
+    for protected_path in protected_paths:
+        if _is_relative_to(resolved_output, protected_path) or _is_relative_to(
+            protected_path, resolved_output
+        ):
+            raise ValueError(f"unsafe output path overlaps protected input: {output_dir}")
     if resolved_output.exists() and not resolved_output.is_dir():
         raise ValueError(f"unsafe output path is not a directory: {output_dir}")
     return resolved_output
@@ -94,6 +100,10 @@ def _is_excluded_file(relative: Path) -> bool:
 
 
 def _validate_symlink(path: Path, source_dir: Path) -> None:
+    if Path(os.readlink(path)).is_absolute():
+        raise ValueError(
+            f"unsafe symlink (absolute symlink target) in {source_dir.name}: {path}"
+        )
     try:
         target = path.resolve(strict=True)
     except (FileNotFoundError, RuntimeError) as error:
@@ -215,9 +225,18 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
     """Build normalized copies for source entries; promoted entries are handled later."""
     resolved_root = Path(repo_root).expanduser().resolve(strict=True)
     validated = _validate_sources(resolved_root, manifest)
+    protected_paths = [source.source_dir for source in validated]
+    protected_paths.append((resolved_root / ".agents-backup").resolve(strict=False))
+    for entry in manifest.promoted:
+        if entry.promoted_from is None:
+            raise ValueError("promoted entry is missing provenance")
+        provenance = (resolved_root / entry.promoted_from).resolve(strict=False)
+        if not provenance.is_relative_to(resolved_root):
+            raise ValueError(f"unsafe promoted provenance: {entry.promoted_from!r}")
+        protected_paths.append(provenance)
     resolved_output = _validate_output_path(
         resolved_root,
-        [source.source_dir for source in validated],
+        protected_paths,
         Path(output_dir),
     )
 

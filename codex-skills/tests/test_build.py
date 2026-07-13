@@ -9,6 +9,7 @@ from scripts.build import build_collection
 from scripts.common import (
     Manifest,
     SkillEntry,
+    hash_protected_sources,
     parse_skill_document,
     render_skill_document,
 )
@@ -29,6 +30,17 @@ def manifest(*entries):
     return Manifest(sources=tuple(entries), promoted=())
 
 
+def promoted_entry(output="promoted", provenance=".agents-backup/archived.md"):
+    return SkillEntry(
+        source=None,
+        promoted_from=provenance,
+        output=output,
+        conversion="adapted",
+        dependencies=(),
+        notes="Promoted for Codex.",
+    )
+
+
 class FrontmatterTests(unittest.TestCase):
     def test_parses_all_supported_description_scalar_styles(self):
         cases = {
@@ -39,6 +51,10 @@ class FrontmatterTests(unittest.TestCase):
             "'single quoted description'": (
                 "single quoted description",
                 "single quoted description",
+            ),
+            "'single''s quoted description'": (
+                "single's quoted description",
+                "single's quoted description",
             ),
             '"double quoted description"': (
                 "double quoted description",
@@ -99,6 +115,12 @@ class FrontmatterTests(unittest.TestCase):
             "unsafe name": "---\nname: ../sample\ndescription: useful\n---\nbody",
             "malformed field": "---\nname sample\ndescription: useful\n---\nbody",
             "unterminated quote": "---\nname: sample\ndescription: \"useful\n---\nbody",
+            "single quote trailing tokens": (
+                "---\nname: sample\ndescription: 'quoted' trailing'\n---\nbody"
+            ),
+            "undoubled interior single quote": (
+                "---\nname: sample\ndescription: 'quoted's invalid'\n---\nbody"
+            ),
         }
 
         for label, document in invalid.items():
@@ -211,6 +233,8 @@ class BuildTests(unittest.TestCase):
             ".gstack/state.json",
             ".cache/state.json",
             ".ruff_cache/state.json",
+            "nested/cache/state.json",
+            "nested/runtime/state.json",
             ".git/config",
         )
         for relative in excluded_files:
@@ -271,6 +295,16 @@ class BuildTests(unittest.TestCase):
         self.assertTrue(copied.is_symlink())
         self.assertEqual("target.txt", os.readlink(copied))
 
+    def test_rejects_absolute_symlink_even_when_target_is_internal(self):
+        skill = self.make_skill()
+        target = skill / "target.txt"
+        target.write_text("target\n", encoding="utf-8")
+        (skill / "absolute-alias.txt").symlink_to(target.resolve())
+
+        with self.assertRaisesRegex(ValueError, "absolute symlink"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+        self.assertFalse(self.output.exists())
+
     def test_rejects_output_equal_to_root_or_overlapping_source(self):
         skill = self.make_skill()
         unsafe_paths = (
@@ -284,6 +318,42 @@ class BuildTests(unittest.TestCase):
             with self.subTest(output=output):
                 with self.assertRaisesRegex(ValueError, "unsafe output"):
                     build_collection(self.repo_root, manifest(entry()), output)
+
+    def test_rejects_archive_output_before_deleting_protected_sources(self):
+        self.make_skill()
+        archive = self.repo_root / ".agents-backup"
+        archive.mkdir()
+        archived_file = archive / "archived.md"
+        archived_file.write_text("protected archive\n", encoding="utf-8")
+        collection = Manifest(
+            sources=(entry(),),
+            promoted=(promoted_entry(),),
+        )
+        before = hash_protected_sources(self.repo_root)
+
+        with self.assertRaisesRegex(ValueError, "unsafe output"):
+            build_collection(self.repo_root, collection, archive)
+
+        self.assertEqual(before, hash_protected_sources(self.repo_root))
+        self.assertEqual("protected archive\n", archived_file.read_text(encoding="utf-8"))
+
+    def test_rejects_output_containing_promoted_provenance_outside_archive(self):
+        self.make_skill()
+        provenance_dir = self.repo_root / "promoted-input"
+        provenance_dir.mkdir()
+        provenance = provenance_dir / "source.md"
+        provenance.write_text("promoted source\n", encoding="utf-8")
+        collection = Manifest(
+            sources=(entry(),),
+            promoted=(
+                promoted_entry(provenance="promoted-input/source.md"),
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "unsafe output"):
+            build_collection(self.repo_root, collection, provenance_dir)
+
+        self.assertEqual("promoted source\n", provenance.read_text(encoding="utf-8"))
 
     def test_rebuild_is_deterministic_and_removes_stale_files(self):
         self.make_skill("zeta", "Zeta performs a deterministic task.")

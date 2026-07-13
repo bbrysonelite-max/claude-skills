@@ -57,9 +57,22 @@ def _parse_quoted_scalar(value: str, field: str) -> str:
             raise ValueError(f"{field} must be a string")
         return parsed
     if value.startswith("'"):
-        if len(value) < 2 or not value.endswith("'"):
-            raise ValueError(f"malformed {field} scalar")
-        return value[1:-1].replace("''", "'")
+        parsed_characters: list[str] = []
+        index = 1
+        while index < len(value):
+            character = value[index]
+            if character != "'":
+                parsed_characters.append(character)
+                index += 1
+                continue
+            if index + 1 < len(value) and value[index + 1] == "'":
+                parsed_characters.append("'")
+                index += 2
+                continue
+            if index != len(value) - 1:
+                raise ValueError(f"malformed {field} scalar")
+            return "".join(parsed_characters)
+        raise ValueError(f"malformed {field} scalar")
     return value.strip()
 
 
