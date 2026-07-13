@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Evaluation Audit"
+  short_description: "Audit AI evaluation coverage and readiness"
+  default_prompt: "Use $ai-evaluation-audit to assess implemented evaluation coverage and deployment readiness."

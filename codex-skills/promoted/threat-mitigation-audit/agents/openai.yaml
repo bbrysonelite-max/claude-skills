@@ -1,0 +1,4 @@
+interface:
+  display_name: "Threat Mitigation Audit"
+  short_description: "Verify declared threat mitigations"
+  default_prompt: "Use $threat-mitigation-audit to verify these declared threat dispositions and mitigations."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integration Flow Audit"
+  short_description: "Trace end-to-end integration behavior"
+  default_prompt: "Use $integration-flow-audit to audit these end-to-end integration flows."

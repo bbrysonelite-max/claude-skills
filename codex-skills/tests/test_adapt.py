@@ -494,7 +494,7 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             output = Path(temporary_directory) / "skills"
             result = build_collection(REPOSITORY_ROOT, manifest, output)
 
-            self.assertEqual(51, result.count)
+            self.assertEqual(58, result.count)
             self.assertEqual(
                 Counter({"dependency-required": 40, "native": 6, "adapted": 5}),
                 Counter(entry.conversion for entry in manifest.sources),

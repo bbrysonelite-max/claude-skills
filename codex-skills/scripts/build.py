@@ -91,6 +91,15 @@ REQUIRED_OVERRIDE_NAMES = frozenset(
         "tiger-doc-keeper",
     }
 )
+PROMOTED_PROVENANCE = {
+    "assumptions-audit": ".agents-backup/gsd-assumptions-analyzer.md",
+    "codebase-pattern-mapping": ".agents-backup/gsd-pattern-mapper.md",
+    "documentation-claim-verification": ".agents-backup/gsd-doc-verifier.md",
+    "integration-flow-audit": ".agents-backup/gsd-integration-checker.md",
+    "requirements-coverage-audit": ".agents-backup/gsd-nyquist-auditor.md",
+    "threat-mitigation-audit": ".agents-backup/gsd-security-auditor.md",
+    "ai-evaluation-audit": ".agents-backup/gsd-eval-auditor.md",
+}
 OVERRIDE_REQUIRED_SECTIONS = (
     "## Codex Runtime",
     "## Inputs and Preflight",
@@ -100,6 +109,10 @@ OVERRIDE_REQUIRED_SECTIONS = (
 )
 _MANDATORY_DELEGATION = re.compile(
     r"\b(?:must|required to|always)\s+(?:delegate|use (?:a )?subagent)",
+    re.IGNORECASE,
+)
+_PROMOTED_ARCHIVED_RUNTIME = re.compile(
+    r"(?:\bgsd\b|\.planning/|\.claude/|\borchestrator\b|\bslash command\b)",
     re.IGNORECASE,
 )
 
@@ -117,6 +130,14 @@ class BuildResult:
 
 @dataclass(frozen=True)
 class _ValidatedSource:
+    entry: SkillEntry
+    source_dir: Path
+    document: SkillDocument
+    resources: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
+class _ValidatedPromoted:
     entry: SkillEntry
     source_dir: Path
     document: SkillDocument
@@ -298,6 +319,164 @@ def _validate_sources(repo_root: Path, manifest: Manifest) -> list[_ValidatedSou
     return validated
 
 
+def _frontmatter_keys(text: str) -> tuple[str, ...]:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if not lines or lines[0] != "---":
+        return ()
+    keys: list[str] = []
+    for line in lines[1:]:
+        if line == "---":
+            break
+        if not line.strip() or line.lstrip().startswith("#") or line[:1].isspace():
+            continue
+        if ":" in line:
+            keys.append(line.split(":", 1)[0])
+    return tuple(keys)
+
+
+def _validate_promoted(
+    repo_root: Path, manifest: Manifest
+) -> list[_ValidatedPromoted]:
+    promoted_root = repo_root / "codex-skills" / "promoted"
+    expected_outputs = {entry.output for entry in manifest.promoted}
+    declared_outputs = set(expected_outputs)
+    canonical_manifest_path = repo_root / "codex-skills" / "manifest.yaml"
+    if canonical_manifest_path.is_file() and not canonical_manifest_path.is_symlink():
+        canonical_manifest = load_manifest(
+            canonical_manifest_path, repo_root=repo_root
+        )
+        declared_outputs.update(
+            entry.output for entry in canonical_manifest.promoted
+        )
+
+    if promoted_root.exists():
+        if promoted_root.is_symlink() or not promoted_root.is_dir():
+            raise ValueError(f"unsafe promoted input root: {promoted_root}")
+        actual_outputs = {path.name for path in promoted_root.iterdir()}
+    else:
+        actual_outputs = set()
+
+    unknown = actual_outputs - declared_outputs
+    if unknown:
+        raise ValueError(
+            "unknown promoted input(s): " + ", ".join(sorted(unknown))
+        )
+
+    validated: list[_ValidatedPromoted] = []
+    for entry in sorted(manifest.promoted, key=lambda item: item.output):
+        if SAFE_SKILL_NAME.fullmatch(entry.output) is None:
+            raise ValueError(f"unsafe promoted output name: {entry.output!r}")
+        expected_provenance = PROMOTED_PROVENANCE.get(entry.output)
+        if expected_provenance is None:
+            raise ValueError(f"unknown promoted output: {entry.output}")
+        if entry.promoted_from != expected_provenance:
+            raise ValueError(
+                f"promoted provenance mismatch for {entry.output}: "
+                f"expected {expected_provenance!r}, got {entry.promoted_from!r}"
+            )
+        if entry.source is not None:
+            raise ValueError(f"promoted entry {entry.output} must not set source")
+        if entry.conversion != "adapted" or entry.dependencies:
+            raise ValueError(
+                f"promoted entry {entry.output} must use adapted conversion "
+                "with no dependency contract"
+            )
+
+        provenance_candidate = repo_root / expected_provenance
+        try:
+            provenance = provenance_candidate.resolve(strict=True)
+        except (FileNotFoundError, RuntimeError) as error:
+            raise ValueError(
+                f"promoted provenance does not exist: {expected_provenance}"
+            ) from error
+        if not provenance.is_relative_to(repo_root) or not provenance.is_file():
+            raise ValueError(
+                f"unsafe promoted provenance for {entry.output}: {expected_provenance}"
+            )
+
+        source_candidate = promoted_root / entry.output
+        if not source_candidate.exists():
+            raise ValueError(
+                f"promoted input does not exist: codex-skills/promoted/{entry.output}"
+            )
+        if source_candidate.is_symlink():
+            raise ValueError(f"unsafe promoted input directory: {entry.output}")
+        source_dir = source_candidate.resolve(strict=True)
+        if not source_dir.is_relative_to(promoted_root) or not source_dir.is_dir():
+            raise ValueError(f"unsafe promoted input directory: {entry.output}")
+
+        skill_path = source_dir / "SKILL.md"
+        if not skill_path.is_file():
+            raise ValueError(f"promoted input SKILL.md does not exist: {entry.output}")
+        if skill_path.is_symlink():
+            _validate_symlink(skill_path, source_dir)
+        try:
+            with skill_path.open("r", encoding="utf-8", newline="") as skill_file:
+                text = skill_file.read()
+            document = parse_skill_document(text)
+        except (OSError, UnicodeError, ValueError) as error:
+            raise ValueError(
+                f"promoted input {entry.output} is malformed: {error}"
+            ) from error
+
+        if _frontmatter_keys(text) != ("name", "description"):
+            raise ValueError(
+                f"promoted input {entry.output} frontmatter may contain "
+                "only name and description"
+            )
+        if document.name != source_dir.name or document.name != entry.output:
+            raise ValueError(
+                f"promoted skill name {document.name!r} does not match "
+                f"folder/manifest name {entry.output!r}"
+            )
+        if not document.description.startswith("Use when "):
+            raise ValueError(
+                f"promoted description for {entry.output} must start with 'Use when '"
+            )
+        if document.body.count("## Codex Runtime") != 1:
+            raise ValueError(
+                f"promoted input {entry.output} must contain exactly one "
+                "'## Codex Runtime' section"
+            )
+        if "main Codex agent" not in document.body:
+            raise ValueError(
+                f"promoted input {entry.output} must operate in the main Codex agent"
+            )
+        if "Never print, log, or expose secret values." not in document.body:
+            raise ValueError(
+                f"promoted input {entry.output} is missing the secret-safety clause"
+            )
+        if _MANDATORY_DELEGATION.search(document.body):
+            raise ValueError(
+                f"promoted input {entry.output} requires unsupported delegation"
+            )
+        if _PROMOTED_ARCHIVED_RUNTIME.search(document.body):
+            raise ValueError(
+                f"promoted input {entry.output} contains archived runtime coupling"
+            )
+        rendered = render_skill_document(document)
+        validate_generated_markdown(entry.output, "SKILL.md", rendered)
+        resources = _collect_resources(source_dir)
+        for path in resources:
+            if path.is_dir() or path.is_symlink() or path.suffix.lower() != ".md":
+                continue
+            with path.open("r", encoding="utf-8", newline="") as resource_file:
+                validate_generated_markdown(
+                    entry.output,
+                    path.relative_to(source_dir).as_posix(),
+                    resource_file.read(),
+                )
+        validated.append(
+            _ValidatedPromoted(
+                entry=entry,
+                source_dir=source_dir,
+                document=document,
+                resources=resources,
+            )
+        )
+    return validated
+
+
 def _normalize_override_document(document: SkillDocument) -> SkillDocument:
     return replace(
         document,
@@ -448,7 +627,9 @@ def _copy_resource(
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
         relative_path = relative.as_posix()
-        has_resource_adapter = is_adapted_resource(entry.source, relative_path)
+        has_resource_adapter = entry.source is not None and is_adapted_resource(
+            entry.source, relative_path
+        )
         if has_resource_adapter:
             with path.open("r", encoding="utf-8", newline="") as source_file:
                 content = source_file.read()
@@ -475,13 +656,14 @@ def _apply_directory_metadata(
 
 
 def _validate_markdown_tree(entry: SkillEntry, destination_dir: Path) -> None:
+    skill_name = entry.source or entry.output
     for path in sorted(destination_dir.rglob("*.md")):
         if not path.is_file():
             continue
         with path.open("r", encoding="utf-8", newline="") as markdown_file:
             text = markdown_file.read()
         validate_generated_markdown(
-            entry.source, path.relative_to(destination_dir).as_posix(), text
+            skill_name, path.relative_to(destination_dir).as_posix(), text
         )
 
 
@@ -570,7 +752,7 @@ def _replace_output(staging_dir: Path, output_dir: Path) -> tuple[str, ...]:
 
 
 def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> BuildResult:
-    """Build normalized copies for source entries; promoted entries are handled later."""
+    """Build normalized Codex skills from source and promoted inputs."""
     resolved_root = Path(repo_root).expanduser().resolve(strict=True)
     validated = _validate_sources(resolved_root, manifest)
     overrides = _validate_overrides(resolved_root, manifest, validated)
@@ -578,6 +760,9 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
     protected_paths.append((resolved_root / ".agents-backup").resolve(strict=False))
     protected_paths.append(
         (resolved_root / "codex-skills" / "overrides").resolve(strict=False)
+    )
+    protected_paths.append(
+        (resolved_root / "codex-skills" / "promoted").resolve(strict=False)
     )
     for entry in manifest.promoted:
         if entry.promoted_from is None:
@@ -591,6 +776,7 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
         protected_paths,
         Path(output_dir),
     )
+    promoted = _validate_promoted(resolved_root, manifest)
 
     resolved_output.parent.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(
@@ -635,6 +821,26 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
             _apply_directory_metadata(
                 source.resources, source.source_dir, destination
             )
+        for item in promoted:
+            destination = staging_dir / item.entry.output
+            destination.mkdir()
+            for resource in item.resources:
+                _copy_resource(
+                    resource, item.source_dir, destination, item.entry
+                )
+            _write_text_exact(
+                destination / "SKILL.md", render_skill_document(item.document)
+            )
+            _validate_markdown_tree(item.entry, destination)
+            agents_dir = destination / "agents"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            _write_text_exact(
+                agents_dir / "openai.yaml",
+                _metadata(item.entry, item.document.description),
+            )
+            _apply_directory_metadata(
+                item.resources, item.source_dir, destination
+            )
         _write_text_exact(
             staging_dir / GENERATED_MARKER,
             "Generated by codex-skills/scripts/build.py.\n",
@@ -650,7 +856,12 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
 
     return BuildResult(
         output_dir=resolved_output,
-        built_names=tuple(source.entry.output for source in validated),
+        built_names=tuple(
+            sorted(
+                [source.entry.output for source in validated]
+                + [item.entry.output for item in promoted]
+            )
+        ),
         warnings=warnings,
     )
 

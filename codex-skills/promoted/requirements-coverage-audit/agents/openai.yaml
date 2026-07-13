@@ -1,0 +1,4 @@
+interface:
+  display_name: "Requirements Coverage Audit"
+  short_description: "Map requirements to executable test proof"
+  default_prompt: "Use $requirements-coverage-audit to assess test coverage for these requirements."

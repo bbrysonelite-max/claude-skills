@@ -1,0 +1,4 @@
+interface:
+  display_name: "Documentation Claim Verification"
+  short_description: "Verify documentation claims against evidence"
+  default_prompt: "Use $documentation-claim-verification to verify the claims in these documents."
