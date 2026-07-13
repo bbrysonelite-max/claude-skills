@@ -19,6 +19,37 @@ CODEX_SKILLS_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = CODEX_SKILLS_ROOT.parent
 MANIFEST_PATH = CODEX_SKILLS_ROOT / "manifest.yaml"
 
+FORBIDDEN_MARKDOWN_MUTATIONS = (
+    "AskUserQuestion",
+    "TodoWrite",
+    "Agent(",
+    "Task(",
+    "Read tool",
+    "Write tool",
+    "Bash tool",
+    "Glob tool",
+    "Grep tool",
+    "WebSearch tool",
+    "WebFetch tool",
+    "Agent tool",
+    "Task tool",
+    "~/.claude/skills",
+    "~/.claude/skills/example/SKILL.md",
+    "$HOME/.claude/skills/example/SKILL.md",
+    "~/.claude/plugins/cache",
+    "~/.claude/plugins/cache/example/SKILL.md",
+    "~/.claude/plugins/marketplaces/example/SKILL.md",
+    ".claude-plugin/plugin.json",
+    "claude_desktop_config.json",
+    "--client claude-code",
+    "ToolSearch",
+    'WebSearch("query")',
+    'WebFetch("https://example.com")',
+    'Codex web search capability("query")',
+    'Codex web fetch("https://example.com")',
+    'Codex web fetch capability("https://example.com")',
+)
+
 
 def source_text(name: str, relative_path: str = "SKILL.md") -> str:
     with (REPOSITORY_ROOT / name / relative_path).open(
@@ -169,8 +200,32 @@ class AdapterContractTests(unittest.TestCase):
         miner = self.adapt_source("skill-miner")
         librarian = self.adapt_source("skills-librarian")
 
-        self.assertIn("`--dir ~/.codex/sessions`", miner)
+        self.assertIn("python3 scripts/digest_codex.py --batches 3", miner)
+        self.assertIn("directly in the main Codex agent", miner)
+        self.assertIn("Delegation is optional", miner)
+        self.assertNotIn("Fan out 3 analyst subagents", miner)
         self.assertIn("`SKILLS_DIR=~/.codex/skills`", librarian)
+
+    def test_signal_mine_vertical_uses_codex_web_research_wording(self):
+        result = self.adapt_source(
+            "signal-mine", "verticals/ssdi-work-fear.md"
+        )
+
+        self.assertIn("Codex web research or Serper", result)
+        self.assertNotIn("WebSearch/Serper", result)
+
+    def test_strict_full_sources_reject_appended_forbidden_markdown(self):
+        source = source_body("page-rethink")
+        entry = self.entries["page-rethink"]
+
+        for forbidden in FORBIDDEN_MARKDOWN_MUTATIONS:
+            with self.subTest(forbidden=forbidden):
+                with self.assertRaisesRegex(ValueError, "prohibited Markdown"):
+                    adapt_text(
+                        "page-rethink",
+                        f"{source}\n{forbidden}\n",
+                        entry=entry,
+                    )
 
     def test_the_rebuild_reference_resource_is_adapted(self):
         result = self.adapt_source("the-rebuild", "REFERENCE.md")
@@ -360,6 +415,40 @@ class AdapterContractTests(unittest.TestCase):
         self.assertNotIn("AskUserQuestion", result)
         self.assertNotIn("\n", result.replace("\r\n", ""))
 
+    def test_every_strict_skill_and_named_resource_is_crlf_safe(self):
+        named_resources = {
+            ("skill-miner", "REFERENCE.md"),
+            ("the-rebuild", "REFERENCE.md"),
+            ("signal-mine", "verticals/ssdi-work-fear.md"),
+        }
+        cases = [
+            (entry.source, "SKILL.md", source_body(entry.source), entry)
+            for entry in self.manifest.sources
+            if entry.conversion != "native"
+        ]
+        cases.extend(
+            (
+                skill_name,
+                relative_path,
+                source_text(skill_name, relative_path),
+                self.entries[skill_name],
+            )
+            for skill_name, relative_path in sorted(named_resources)
+        )
+
+        for skill_name, relative_path, text, entry in cases:
+            with self.subTest(skill=skill_name, path=relative_path):
+                normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+                crlf_text = normalized.replace("\n", "\r\n")
+                result = adapt_text(
+                    skill_name,
+                    crlf_text,
+                    relative_path=relative_path,
+                    entry=entry,
+                )
+                self.assertNotRegex(result, r"(?<!\r)\n")
+                self.assertNotRegex(result, r"\r(?!\n)")
+
 
 class AdapterBuildIntegrationTests(unittest.TestCase):
     @classmethod
@@ -426,7 +515,7 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
                 "closing-ritual": ".codex/sessions/",
                 "doc-keeper": "direct main-agent workflow",
                 "tiger-doc-keeper": "direct main-agent workflow",
-                "skill-miner": "~/.codex/skills",
+                "skill-miner": "scripts/digest_codex.py",
                 "skills-librarian": "~/.codex/skills",
                 "page-rethink": "browser-use:browser",
                 "intro-page": "browser-use:browser",
@@ -460,6 +549,15 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             for skill_name, marker in group_markers.items():
                 self.assertIn(marker, generated[skill_name], skill_name)
 
+            miner_reference = (
+                output / "skill-miner" / "REFERENCE.md"
+            ).read_text(encoding="utf-8")
+            miner_helper = output / "skill-miner" / "scripts" / "digest_codex.py"
+            self.assertTrue(miner_helper.is_file())
+            self.assertIn("Analyze each batch directly", miner_reference)
+            self.assertIn("Delegation is optional", miner_reference)
+            self.assertNotIn("Dispatch 3 `general-purpose` agents", miner_reference)
+
             operational_patterns = {
                 "AskUserQuestion": re.compile(r"\bAskUserQuestion\b"),
                 "TodoWrite": re.compile(r"\bTodoWrite\b"),
@@ -482,12 +580,18 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
 
             prohibited_patterns = {
                 "AskUserQuestion": re.compile(r"AskUserQuestion"),
+                "TodoWrite": re.compile(r"\bTodoWrite\b"),
                 "Agent call": re.compile(r"Agent\("),
                 "Task call": re.compile(r"Task\("),
-                "Claude skill path": re.compile(r"~/.claude/skills/"),
-                "Claude HOME skill path": re.compile(r"\$HOME/\.claude/skills/"),
-                "Claude plugin/cache": re.compile(
-                    r"(?:\$HOME|~)/\.claude/plugins/(?:cache|marketplaces)/"
+                "Claude tool name": re.compile(
+                    r"`?(?:Read|Write|Bash|Glob|Grep|WebSearch|WebFetch|Agent|Task)`?"
+                    r"\s+tool\b"
+                ),
+                "WebSearch": re.compile(r"\bWebSearch\b"),
+                "WebFetch": re.compile(r"\bWebFetch\b"),
+                "Claude skill/plugin/cache path": re.compile(
+                    r"(?:(?:~|\$HOME)/)?\.claude/"
+                    r"(?:skills|plugins/(?:cache|marketplaces))(?![\w-])"
                 ),
                 "Claude plugin manifest": re.compile(r"\.claude-plugin/plugin\.json"),
                 "Claude ToolSearch": re.compile(r"ToolSearch"),
@@ -519,6 +623,7 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             named_resources = {
                 ("skill-miner", "REFERENCE.md"),
                 ("the-rebuild", "REFERENCE.md"),
+                ("signal-mine", "verticals/ssdi-work-fear.md"),
             }
             for skill_name, relative_path in named_resources:
                 source = REPOSITORY_ROOT / skill_name / relative_path

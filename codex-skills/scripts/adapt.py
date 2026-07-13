@@ -212,6 +212,7 @@ ADAPTER_REGISTRY: Mapping[str, AdapterSpec] = MappingProxyType(_ADAPTERS)
 
 RESOURCE_ADAPTER_PATHS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
+        "signal-mine": frozenset({"verticals/ssdi-work-fear.md"}),
         "skill-miner": frozenset({"REFERENCE.md"}),
         "the-rebuild": frozenset({"REFERENCE.md"}),
     }
@@ -261,6 +262,42 @@ _CROSS_SKILL_PATHS = {
 }
 
 _AGENT_CALL_BLOCK = re.compile(r"(?ms)^Agent\(\r?\n.*?^\)\r?\n")
+
+_PROHIBITED_MARKDOWN_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("AskUserQuestion", re.compile(r"\bAskUserQuestion\b")),
+    ("TodoWrite", re.compile(r"\bTodoWrite\b")),
+    ("Agent call", re.compile(r"Agent\(")),
+    ("Task call", re.compile(r"Task\(")),
+    (
+        "Claude tool name",
+        re.compile(
+            r"`?(?:Read|Write|Bash|Glob|Grep|WebSearch|WebFetch|Agent|Task)`?"
+            r"\s+tool\b"
+        ),
+    ),
+    ("WebSearch", re.compile(r"\bWebSearch\b")),
+    ("WebFetch", re.compile(r"\bWebFetch\b")),
+    (
+        "Claude skill/plugin/cache path",
+        re.compile(
+            r"(?:(?:~|\$HOME)/)?\.claude/"
+            r"(?:skills|plugins/(?:cache|marketplaces))(?![\w-])"
+        ),
+    ),
+    ("Claude plugin manifest", re.compile(r"\.claude-plugin/plugin\.json")),
+    ("Claude Desktop config", re.compile(r"claude_desktop_config")),
+    ("Claude client flag", re.compile(r"--client\s+claude-code\b")),
+    ("ToolSearch", re.compile(r"\bToolSearch\b")),
+    (
+        "web pseudo-call",
+        re.compile(
+            r"(?:WebSearch|WebFetch|Codex web (?:search|fetch)(?: capability)?)\("
+        ),
+    ),
+)
+
+# Historical or non-operational mentions must be literal and path-scoped.
+_MARKDOWN_ALLOWLIST: Mapping[tuple[str, str], tuple[str, ...]] = MappingProxyType({})
 
 _LAST30DAYS_CODEX_INSTALL = (
     "# STEP 0: CODEX INSTALL SELF-CHECK\n\n"
@@ -325,6 +362,71 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ExpectedRewrite(
             re.compile(re.escape("~/.claude/skills")), 1, "~/.codex/skills"
         ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?ms)^1\. \*\*Digest\*\* the transcripts into analyzable batches:.*?"
+                r"^2\. \*\*Establish what already exists\*\*"
+            ),
+            1,
+            (
+                "1. **Digest** current Codex rollouts and context-keeper snapshots into "
+                "analyzable batches:\n"
+                "   `python3 scripts/digest_codex.py --batches 3`\n"
+                "   Writes `digest.txt` + `batch1..3.txt` from user/assistant messages "
+                "and context snapshots while excluding tool payloads. Add `--limit N` "
+                "to mine only the N most recent session files. Use the original "
+                "`scripts/digest.py` only for deliberate read-only analysis of historical "
+                "Claude transcripts.\n"
+                "2. **Establish what already exists**"
+            ),
+        ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?ms)^3\. \*\*Fan out 3 analyst subagents\*\*.*?"
+                r"^4\. \*\*Synthesize\*\*"
+            ),
+            1,
+            (
+                "3. **Analyze each batch** directly in the main Codex agent using the "
+                "prompt template in [REFERENCE.md](REFERENCE.md). Delegation is optional "
+                "only when the active environment permits it; the workflow must remain "
+                "valid without delegation.\n"
+                "4. **Synthesize**"
+            ),
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "**Bounded cost.** One sweep per run, ~3 analyst agents. Not an "
+                    "iterate-to-dry loop."
+                )
+            ),
+            1,
+            (
+                "**Bounded cost.** One sweep per run over three batches. Analyze them "
+                "directly, or delegate selectively when permitted."
+            ),
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "python3 scripts/digest.py --batches 3   # then fan out 3 analysts "
+                    "over batch1..3.txt (see REFERENCE.md)"
+                )
+            ),
+            1,
+            (
+                "python3 scripts/digest_codex.py --batches 3  # analyze batch1..3.txt "
+                "directly (see REFERENCE.md)"
+            ),
+        ),
+    ),
+    ("skill-miner", "DESCRIPTION"): (
+        ExpectedRewrite(
+            re.compile(re.escape("past Claude Code session transcripts")),
+            1,
+            "past Codex session rollouts and context snapshots",
+        ),
     ),
     ("skill-miner", "REFERENCE.md"): (
         ExpectedRewrite(
@@ -332,16 +434,36 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ),
         ExpectedRewrite(
             re.compile(
-                re.escape(
-                    "`scripts/digest.py` reads "
-                    "`~/.claude/projects/-Users-brentbryson/*.jsonl` "
-                    "(override `--dir`),"
-                )
+                r"(?ms)^## Analyst subagent prompt \(one per batch\)\n\n"
+                r"Dispatch 3 `general-purpose` agents in a single message \(parallel\)\."
             ),
             1,
-            "`scripts/digest.py` may read historical "
-            "`~/.claude/projects/-Users-brentbryson/*.jsonl` only as read-only "
-            "evidence (override `--dir`),",
+            (
+                "## Batch analysis prompt\n\n"
+                "Analyze each batch directly in the main Codex agent. Delegation is "
+                "optional only when the active environment permits it."
+            ),
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("past Claude Code sessions")),
+            1,
+            "past Codex sessions",
+        ),
+        ExpectedRewrite(
+            re.compile(r"(?ms)^## Digest internals\n.*\Z"),
+            1,
+            (
+                "## Digest internals\n\n"
+                "`scripts/digest_codex.py` recursively reads nested "
+                "`~/.codex/sessions/**/*.jsonl` rollouts and context-keeper Markdown "
+                "snapshots. It keeps only user/assistant textual messages, excludes tool, "
+                "reasoning, encrypted, and developer payloads, redacts credential-shaped "
+                "values, and emits deterministic `digest.txt` plus optional `batchK.txt` "
+                "files. `--limit N` bounds the most recent session files.\n\n"
+                "Use historical `~/.claude/projects/-Users-brentbryson/*.jsonl` only as "
+                "read-only evidence with the original `scripts/digest.py`; never use that "
+                "helper for current Codex rollouts.\n"
+            ),
         ),
     ),
     ("skills-librarian", "SKILL.md"): (
@@ -424,6 +546,13 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ("signal-mine", "SKILL.md"): (
         ExpectedRewrite(
             re.compile(r"\bWebSearch\b"), 2, "Codex web search"
+        ),
+    ),
+    ("signal-mine", "verticals/ssdi-work-fear.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("WebSearch/Serper")),
+            1,
+            "Codex web research or Serper",
         ),
     ),
     ("whitelabel-radar", "SKILL.md"): (
@@ -628,6 +757,34 @@ def _newline_style(text: str) -> str:
     return "\r\n" if crlf_count > lf_count else "\n"
 
 
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _restore_newlines(text: str, newline: str) -> str:
+    normalized = _normalize_newlines(text)
+    return normalized if newline == "\n" else normalized.replace("\n", newline)
+
+
+def validate_generated_markdown(
+    skill_name: str, relative_path: str, text: str
+) -> None:
+    """Reject Claude-only operational instructions in generated Markdown."""
+    normalized_path = str(relative_path).replace("\\", "/")
+    candidate = _normalize_newlines(text)
+    for allowed_text in _MARKDOWN_ALLOWLIST.get(
+        (skill_name, normalized_path), ()
+    ):
+        candidate = candidate.replace(_normalize_newlines(allowed_text), "")
+    for label, pattern in _PROHIBITED_MARKDOWN_PATTERNS:
+        match = pattern.search(candidate)
+        if match is not None:
+            raise ValueError(
+                f"{skill_name}/{normalized_path}: prohibited Markdown pattern "
+                f"{label!r}: {match.group(0)!r}"
+            )
+
+
 def _replace_required_regex(
     skill_name: str,
     text: str,
@@ -797,33 +954,36 @@ def _adapt_named_text(
             "## Hard rules",
         )
 
-    if skill_name in _SESSION_SKILLS:
-        text = text.replace(".claude/sessions", ".codex/sessions")
-    if skill_name in _LIBRARY_SKILLS or skill_name in _CROSS_SKILL_PATHS:
-        text = text.replace("~/.claude/skills/", "~/.codex/skills/")
-        text = text.replace("~/.claude/skills", "~/.codex/skills")
-
-    if skill_name in _CLAUDE_MEMORY_SKILLS:
-        text = text.replace(
-            "~/.claude/claude_desktop_config.json", "~/.codex/config.toml"
-        )
-        text = text.replace("restart Claude Code", "restart the active Codex session")
-        text = text.replace("Install Claude Code plugin", "Install claude-memory MCP integration")
-
-    if skill_name in _GITNEXUS_SKILLS:
-        text = text.replace("Restart Claude Code", "Restart the active Codex session")
-        text = text.replace(
-            "In Claude Code, a PostToolUse hook detects staleness after `git commit` and "
-            "`git merge` and notifies the agent to run `analyze`",
-            "In Codex, check staleness explicitly after `git commit` and `git merge` and "
-            "run `analyze` when needed",
-        )
-
-    # Skill installation paths are operational runtime coupling, not product names.
-    text = text.replace("$HOME/.claude/skills/", "$HOME/.codex/skills/")
-    text = text.replace("~/.claude/skills/", "~/.codex/skills/")
-
     if not strict:
+        if skill_name in _SESSION_SKILLS:
+            text = text.replace(".claude/sessions", ".codex/sessions")
+        if skill_name in _LIBRARY_SKILLS or skill_name in _CROSS_SKILL_PATHS:
+            text = text.replace("~/.claude/skills/", "~/.codex/skills/")
+            text = text.replace("~/.claude/skills", "~/.codex/skills")
+        if skill_name in _CLAUDE_MEMORY_SKILLS:
+            text = text.replace(
+                "~/.claude/claude_desktop_config.json", "~/.codex/config.toml"
+            )
+            text = text.replace(
+                "restart Claude Code", "restart the active Codex session"
+            )
+            text = text.replace(
+                "Install Claude Code plugin",
+                "Install claude-memory MCP integration",
+            )
+        if skill_name in _GITNEXUS_SKILLS:
+            text = text.replace(
+                "Restart Claude Code", "Restart the active Codex session"
+            )
+            text = text.replace(
+                "In Claude Code, a PostToolUse hook detects staleness after `git commit` "
+                "and `git merge` and notifies the agent to run `analyze`",
+                "In Codex, check staleness explicitly after `git commit` and `git merge` "
+                "and run `analyze` when needed",
+            )
+        # Installation paths are runtime coupling, not product names.
+        text = text.replace("$HOME/.claude/skills/", "$HOME/.codex/skills/")
+        text = text.replace("~/.claude/skills/", "~/.codex/skills/")
         safe_boundary_rewrites = (
             (re.compile(r"\bAskUserQuestion\b"), "Codex user-input request"),
             (re.compile(r"\bTodoWrite\b"), "Codex task checklist"),
@@ -868,9 +1028,10 @@ def _runtime_details(skill_name: str) -> list[str]:
         )
         if skill_name == "skill-miner":
             details.append(
-                "Invoke the copied digest helper with `--dir ~/.codex/sessions` for current "
-                "Codex data; pass a historical Claude directory only for deliberate "
-                "read-only analysis."
+                "Run `python3 scripts/digest_codex.py --batches 3` for current nested "
+                "Codex rollouts and context snapshots. Use the original copied "
+                "`scripts/digest.py` only for deliberate read-only analysis of historical "
+                "Claude transcripts."
             )
         if skill_name == "skills-librarian":
             details.extend(
@@ -992,16 +1153,19 @@ def adapt_text(
         return text
 
     newline = _newline_style(text)
+    normalized_text = _normalize_newlines(text)
     adapted = _adapt_named_text(
         skill_name,
-        text,
+        normalized_text,
         normalized_path,
         strict=entry is not None,
-        newline=newline,
+        newline="\n",
     )
     if normalized_path == "SKILL.md":
-        adapted = _append_runtime(skill_name, adapted, spec, newline)
-    return adapted
+        adapted = _append_runtime(skill_name, adapted, spec, "\n")
+    if entry is not None:
+        validate_generated_markdown(skill_name, normalized_path, adapted)
+    return _restore_newlines(adapted, newline)
 
 
 def adapt_description(skill_name: str, description: str, *, entry: Any = None) -> str:
@@ -1014,22 +1178,28 @@ def adapt_description(skill_name: str, description: str, *, entry: Any = None) -
     if spec.conversion == "native":
         return description
 
+    newline = _newline_style(description)
+    normalized_description = _normalize_newlines(description)
     adapted = _apply_source_rewrites(
-        skill_name, description, "DESCRIPTION", strict=entry is not None
+        skill_name,
+        normalized_description,
+        "DESCRIPTION",
+        strict=entry is not None,
     )
-    if skill_name in _SESSION_SKILLS:
-        adapted = adapted.replace(".claude/sessions/", ".codex/sessions/")
-    if skill_name in _LIBRARY_SKILLS:
-        adapted = adapted.replace("~/.claude/skills/", "~/.codex/skills/")
-        adapted = adapted.replace("~/.claude/skills", "~/.codex/skills")
-    if skill_name == "doc-keeper":
-        adapted = adapted.replace(
-            "Dispatches the doc-keeper subagent, which",
-            "Runs the doc-keeper workflow directly; it",
-        )
-    if skill_name == "tiger-doc-keeper":
-        adapted = adapted.replace(
-            "Dispatches the tiger-doc-keeper subagent to",
-            "Runs the tiger-doc-keeper workflow directly to",
-        )
-    return adapted
+    if entry is None:
+        if skill_name in _SESSION_SKILLS:
+            adapted = adapted.replace(".claude/sessions/", ".codex/sessions/")
+        if skill_name in _LIBRARY_SKILLS:
+            adapted = adapted.replace("~/.claude/skills/", "~/.codex/skills/")
+            adapted = adapted.replace("~/.claude/skills", "~/.codex/skills")
+        if skill_name == "doc-keeper":
+            adapted = adapted.replace(
+                "Dispatches the doc-keeper subagent, which",
+                "Runs the doc-keeper workflow directly; it",
+            )
+        if skill_name == "tiger-doc-keeper":
+            adapted = adapted.replace(
+                "Dispatches the tiger-doc-keeper subagent to",
+                "Runs the tiger-doc-keeper workflow directly to",
+            )
+    return _restore_newlines(adapted, newline)

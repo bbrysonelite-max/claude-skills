@@ -16,6 +16,7 @@ try:
         adapt_description,
         adapt_text,
         is_adapted_resource,
+        validate_generated_markdown,
     )
     from scripts.common import (
         SAFE_SKILL_NAME,
@@ -31,6 +32,7 @@ except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
         adapt_description,
         adapt_text,
         is_adapted_resource,
+        validate_generated_markdown,
     )
     from common import (  # type: ignore[no-redef]
         SAFE_SKILL_NAME,
@@ -58,6 +60,14 @@ EXCLUDED_DIRECTORIES = {
 }
 EXCLUDED_FILENAMES = {".DS_Store"}
 GENERATED_MARKER = ".codex-skills-generated"
+GENERATED_ADAPTER_RESOURCES = {
+    "skill-miner": (
+        (
+            Path("codex-skills/adapters/skill-miner/digest_codex.py"),
+            Path("scripts/digest_codex.py"),
+        ),
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -308,6 +318,36 @@ def _apply_directory_metadata(
         shutil.copystat(directory, destination, follow_symlinks=False)
 
 
+def _validate_markdown_tree(entry: SkillEntry, destination_dir: Path) -> None:
+    for path in sorted(destination_dir.rglob("*.md")):
+        if not path.is_file():
+            continue
+        with path.open("r", encoding="utf-8", newline="") as markdown_file:
+            text = markdown_file.read()
+        validate_generated_markdown(
+            entry.source, path.relative_to(destination_dir).as_posix(), text
+        )
+
+
+def _copy_generated_adapter_resources(
+    repo_root: Path, entry: SkillEntry, destination_dir: Path
+) -> None:
+    for source_relative, destination_relative in GENERATED_ADAPTER_RESOURCES.get(
+        entry.source, ()
+    ):
+        source_candidate = repo_root / source_relative
+        if source_candidate.is_symlink():
+            raise ValueError(
+                f"generated adapter resource must not be a symlink: {source_relative}"
+            )
+        source = source_candidate.resolve(strict=True)
+        if not source.is_relative_to(repo_root) or not source.is_file():
+            raise ValueError(f"unsafe generated adapter resource: {source_relative}")
+        destination = destination_dir / destination_relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination, follow_symlinks=False)
+
+
 def _remove_generated_tree(path: Path) -> None:
     def make_owner_writable(target: Path, directory: bool) -> None:
         try:
@@ -417,6 +457,10 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
                 _copy_resource(
                     resource, source.source_dir, destination, source.entry
                 )
+            _copy_generated_adapter_resources(
+                resolved_root, source.entry, destination
+            )
+            _validate_markdown_tree(source.entry, destination)
             agents_dir = destination / "agents"
             agents_dir.mkdir(parents=True, exist_ok=True)
             _write_text_exact(

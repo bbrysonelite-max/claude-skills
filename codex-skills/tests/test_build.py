@@ -10,7 +10,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.adapt import ADAPTER_REGISTRY, AdapterSpec
-from scripts.build import BuildResult, build_collection, main
+from scripts.build import (
+    GENERATED_ADAPTER_RESOURCES,
+    BuildResult,
+    build_collection,
+    main,
+)
 from scripts.common import (
     Manifest,
     SkillEntry,
@@ -251,6 +256,29 @@ class BuildTests(unittest.TestCase):
                 manifest(entry("unknown-native")),
                 self.output,
             )
+
+    def test_build_rejects_forbidden_operational_phrase_in_nested_markdown_resource(self):
+        skill = self.make_skill()
+        notes = skill / "references" / "notes.md"
+        notes.parent.mkdir()
+        notes.write_text("Run the Glob tool over the project.\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "prohibited Markdown"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+
+    def test_build_rejects_symlinked_generated_adapter_resource(self):
+        self.make_skill()
+        target = self.repo_root / "adapter.py"
+        target.write_text("print('safe')\n", encoding="utf-8")
+        link = self.repo_root / "adapter-link.py"
+        link.symlink_to(target.name)
+        resources = {
+            "sample": ((Path("adapter-link.py"), Path("scripts/helper.py")),)
+        }
+
+        with patch.dict(GENERATED_ADAPTER_RESOURCES, resources, clear=True):
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                build_collection(self.repo_root, manifest(entry()), self.output)
 
     def test_allows_only_canonical_output_inside_repository(self):
         self.make_skill()
