@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shutil
 import stat
 import tempfile
 import unittest
@@ -295,6 +296,25 @@ class BuildTests(unittest.TestCase):
 
         self.assertEqual(before, self.snapshot(self.output))
 
+    def test_staged_copy_failure_survives_python311_cleanup_without_leak(self):
+        skill = self.make_skill()
+        (skill / "resource.txt").write_text("resource\n", encoding="utf-8")
+        real_rmtree = shutil.rmtree
+
+        def python311_rmtree(path, ignore_errors=False, onerror=None):
+            return real_rmtree(path, ignore_errors=ignore_errors, onerror=onerror)
+
+        with (
+            patch("scripts.build._copy_resource", side_effect=OSError("copy exploded")),
+            patch("scripts.build.shutil.rmtree", side_effect=python311_rmtree),
+        ):
+            with self.assertRaisesRegex(OSError, "copy exploded"):
+                build_collection(self.repo_root, manifest(entry()), self.output)
+
+        self.assertEqual(
+            [], list(self.output.parent.glob(f".{self.output.name}.staging-*"))
+        )
+
     def test_backup_cleanup_failure_returns_warning_after_commit(self):
         skill = self.make_skill()
         resource = skill / "resource.txt"
@@ -392,6 +412,33 @@ class BuildTests(unittest.TestCase):
         copied = self.output / "sample" / "references"
         self.assertEqual("guide\n", (copied / "guide.md").read_text(encoding="utf-8"))
         self.assertEqual(0o555, stat.S_IMODE(copied.stat().st_mode))
+
+    def test_second_build_cleans_backup_with_read_only_resource_directory(self):
+        skill = self.make_skill()
+        read_only = skill / "references"
+        read_only.mkdir()
+        (read_only / "guide.md").write_text("guide\n", encoding="utf-8")
+        read_only.chmod(0o555)
+        try:
+            first = build_collection(self.repo_root, manifest(entry()), self.output)
+            second = build_collection(self.repo_root, manifest(entry()), self.output)
+        finally:
+            read_only.chmod(0o755)
+
+        self.assertEqual((), first.warnings)
+        self.assertEqual((), second.warnings)
+        self.assertEqual(
+            0o555,
+            stat.S_IMODE(
+                (self.output / "sample" / "references").stat().st_mode
+            ),
+        )
+        self.assertEqual(
+            [], list(self.output.parent.glob(f".{self.output.name}.backup-*"))
+        )
+        self.assertEqual(
+            [], list(self.output.parent.glob(f".{self.output.name}.staging-*"))
+        )
 
     def test_excludes_generated_metadata_and_runtime_or_cache_files(self):
         skill = self.make_skill()
