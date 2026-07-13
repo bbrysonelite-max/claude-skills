@@ -371,10 +371,13 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
             (
                 "1. **Digest** current Codex rollouts and context-keeper snapshots into "
                 "analyzable batches:\n"
-                "   `python3 scripts/digest_codex.py --batches 3`\n"
+                "   `python3 scripts/digest_codex.py --batches 3 --dir "
+                "~/.codex/sessions --context-dir <project-root>/.codex/sessions`\n"
                 "   Writes `digest.txt` + `batch1..3.txt` from user/assistant messages "
-                "and context snapshots while excluding tool payloads. Add `--limit N` "
-                "to mine only the N most recent session files. Use the original "
+                "and explicit project-local context snapshots while excluding tool "
+                "payloads. Repeat `--context-dir` for approved additional projects. Add "
+                "`--limit N` to mine only the N most recent valid session files across "
+                "all roots. Use the original "
                 "`scripts/digest.py` only for deliberate read-only analysis of historical "
                 "Claude transcripts.\n"
                 "2. **Establish what already exists**"
@@ -416,7 +419,8 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
             ),
             1,
             (
-                "python3 scripts/digest_codex.py --batches 3  # analyze batch1..3.txt "
+                "python3 scripts/digest_codex.py --batches 3 --dir ~/.codex/sessions "
+                "--context-dir <project-root>/.codex/sessions  # analyze batches "
                 "directly (see REFERENCE.md)"
             ),
         ),
@@ -454,12 +458,16 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
             1,
             (
                 "## Digest internals\n\n"
-                "`scripts/digest_codex.py` recursively reads nested "
-                "`~/.codex/sessions/**/*.jsonl` rollouts and context-keeper Markdown "
-                "snapshots. It keeps only user/assistant textual messages, excludes tool, "
-                "reasoning, encrypted, and developer payloads, redacts credential-shaped "
-                "values, and emits deterministic `digest.txt` plus optional `batchK.txt` "
-                "files. `--limit N` bounds the most recent session files.\n\n"
+                "`scripts/digest_codex.py --dir ~/.codex/sessions` recursively reads "
+                "current rollout JSONL. Pass each relevant project-local "
+                "`.codex/sessions` directory with repeatable `--context-dir PATH` to "
+                "include context-keeper Markdown snapshots; do not assume those snapshots "
+                "are in the global rollout directory. The helper deduplicates candidates, "
+                "then applies `--limit N` and deterministic ordering across valid rollouts "
+                "and snapshots together. It keeps only user/assistant textual messages, "
+                "excludes tool, reasoning, encrypted, and developer payloads, redacts "
+                "credential-shaped values, and emits deterministic `digest.txt` plus "
+                "optional `batchK.txt` files.\n\n"
                 "Use historical `~/.claude/projects/-Users-brentbryson/*.jsonl` only as "
                 "read-only evidence with the original `scripts/digest.py`; never use that "
                 "helper for current Codex rollouts.\n"
@@ -1028,8 +1036,10 @@ def _runtime_details(skill_name: str) -> list[str]:
         )
         if skill_name == "skill-miner":
             details.append(
-                "Run `python3 scripts/digest_codex.py --batches 3` for current nested "
-                "Codex rollouts and context snapshots. Use the original copied "
+                "Run `python3 scripts/digest_codex.py --batches 3` with "
+                "`--dir ~/.codex/sessions` for current rollout JSONL and repeatable "
+                "`--context-dir <project-root>/.codex/sessions` arguments for explicit "
+                "project-local context snapshots. Use the original copied "
                 "`scripts/digest.py` only for deliberate read-only analysis of historical "
                 "Claude transcripts."
             )

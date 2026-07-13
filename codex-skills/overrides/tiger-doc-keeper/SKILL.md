@@ -43,8 +43,14 @@ Reconcile the Tiger Claw living dashboard to current `origin/main` truth. Use `d
    - The PROGRESS timestamp is newer than the newest `origin/main` commit.
    - The merged-PR guard must resolve every PR number near merged wording as an actually merged PR; keep issue numbers away from that wording.
    - The LINE/drift_guard must contain no newly forbidden phrase.
-5. Run the repository's documented doc check, inspect the docs-only diff, and secret-scan staged additions.
-6. Commit and push only the topic branch, then open one docs PR against `main`. Do not merge.
+5. Run the repository's documented doc check and inspect the working-tree diff. Build an explicit list containing only reviewed Tiger documentation paths.
+6. Stage only that allowlist:
+   ```bash
+   git add -- <reviewed-doc-paths>
+   ```
+   Never stage code or unreviewed files.
+7. Run `git diff --cached --name-only` and require the complete cached path list to equal the reviewed Tiger documentation allowlist. Inspect the entire cached patch with `git diff --cached`, then secret-scan that exact complete cached diff. Abort on any hit and report locations without values.
+8. Commit with `git commit`, push only the topic branch, then open one docs PR against `main`. Do not merge.
 
 ## Safety and Errors
 

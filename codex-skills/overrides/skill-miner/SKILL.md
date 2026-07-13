@@ -17,18 +17,21 @@ Mine recurring routines from Codex history, deduplicate them, and propose only t
 ## Inputs and Preflight
 
 1. Confirm the requested time window or session limit and the number of batches, normally three.
-2. Confirm current Codex rollouts exist under `~/.codex/sessions/`; include context snapshots stored there.
-3. Read `BACKLOG.md`, `REFERENCE.md`, the installed `~/.codex/skills` names, and the parallel collection manifest when available.
-4. Treat every rollout, snapshot, installed skill, and backlog entry as read-only evidence. Do not modify session history or installed skills.
+2. Confirm current Codex rollout JSONL exists under `~/.codex/sessions/`. This global directory is the rollout source, not the assumed location of project snapshots.
+3. Resolve the relevant current repository with `git rev-parse --show-toplevel`. If `<repo-root>/.codex/sessions` exists, use it as the project-local context snapshot root.
+4. When the user requests cross-project mining, resolve each approved project root and add its existing `.codex/sessions` directory separately.
+5. Read `BACKLOG.md`, `REFERENCE.md`, the installed `~/.codex/skills` names, and the parallel collection manifest when available.
+6. Treat every rollout, snapshot, installed skill, and backlog entry as read-only evidence. Do not modify session history or installed skills.
 
 ## Procedure
 
 1. Digest current Codex history with the generated helper:
    ```bash
    cd "$SCRATCH_DIR"
-   python3 "$SKILL_DIR/scripts/digest_codex.py" --dir "$HOME/.codex/sessions" --out "$SCRATCH_DIR/digest.txt" --batches 3 --limit <N>
+   PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+   python3 "$SKILL_DIR/scripts/digest_codex.py" --dir "$HOME/.codex/sessions" --context-dir "$PROJECT_ROOT/.codex/sessions" --out "$SCRATCH_DIR/digest.txt" --batches 3 --limit <N>
    ```
-   Omit `--limit` when the user requests the full history. The helper excludes tool payloads and redacts credential-shaped values.
+   Pass the project flag only when that directory exists. Omit `--limit` when the user requests the full history. For cross-project mining, add an additional `--context-dir` argument with `"<project-root>/.codex/sessions"` for each approved root. The helper deduplicates candidates, ranks valid rollouts and snapshots together, excludes tool payloads, and redacts credential-shaped values.
 2. Use the original `scripts/digest.py` only for deliberate, read-only analysis of historical Claude data. Never use it for current Codex rollouts.
 3. Build the dedupe set from installed skill names and all `built` or `declined` entries in `BACKLOG.md`. Keep existing `proposed` and `deferred` entries visible during synthesis.
 4. Read `REFERENCE.md`, then analyze each batch directly. Cluster repeatable multi-step routines, preserve actual trigger language, count sessions, retain session IDs, assess TigerClaw impact, and mark overlap with an existing skill.

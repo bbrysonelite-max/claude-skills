@@ -32,9 +32,14 @@ Reconcile the living documentation a project actually maintains. Use `tiger-doc-
 3. Build a drift list. For each claim, record its supporting commit, PR, code location, or snapshot; label unverifiable claims rather than repairing them by guesswork.
 4. Correct only drifted documentation lines and follow each document's existing conventions. Preserve the distinction between live, planned, gated, and scaffolded work.
 5. Touch timeless-rule docs only for a real rule change and only after explicit user approval.
-6. Run every repository documentation check and inspect the docs-only diff.
-7. Secret-scan the staged diff. Abort on credential-shaped content and report locations without values.
-8. Commit the docs-only change, push only the topic branch, and open one PR against the default branch. Do not merge.
+6. Run every repository documentation check and inspect the working-tree diff. Build an explicit list containing only reviewed documentation paths.
+7. Stage only that allowlist:
+   ```bash
+   git add -- <reviewed-doc-paths>
+   ```
+   Never stage code or unreviewed files.
+8. Run `git diff --cached --name-only` and require the complete cached path list to equal the reviewed documentation allowlist. Inspect the entire cached patch with `git diff --cached`, then secret-scan that exact complete cached diff. Abort on credential-shaped content and report locations without values.
+9. Commit with `git commit`, push only the topic branch, and open one PR against the default branch. Do not merge.
 
 ## Safety and Errors
 

@@ -1001,6 +1001,18 @@ class RealOverrideContractTests(unittest.TestCase):
                 self.assertIn("default branch", body.lower())
                 self.assertIn("evidence", body.lower())
                 self.assertIn("drift report", body.lower())
+                stage = body.index("git add -- <reviewed-doc-paths>")
+                inspect_names = body.index(
+                    "git diff --cached --name-only", stage
+                )
+                inspect = body.index("`git diff --cached`", inspect_names)
+                secret_scan = body.lower().index("secret-scan", inspect)
+                commit = body.index("git commit", secret_scan)
+                self.assertLess(stage, inspect_names)
+                self.assertLess(inspect_names, inspect)
+                self.assertLess(inspect, secret_scan)
+                self.assertLess(secret_scan, commit)
+                self.assertIn("Never stage code or unreviewed files", body)
         tiger = self.documents()["tiger-doc-keeper"].body
         for rule in (
             "BIG-PICTURE.md",
@@ -1032,6 +1044,12 @@ class RealOverrideContractTests(unittest.TestCase):
         self.assertIn("built", body)
         self.assertIn("declined", body)
         self.assertIn("never auto-build", body.lower())
+        self.assertIn("git rev-parse --show-toplevel", body)
+        self.assertIn(
+            '--context-dir "$PROJECT_ROOT/.codex/sessions"', body
+        )
+        self.assertIn("additional `--context-dir`", body)
+        self.assertNotIn("include context snapshots stored there", body)
 
     def test_skills_librarian_uses_script_inputs_and_parallel_manifest(self):
         body = self.documents()["skills-librarian"].body

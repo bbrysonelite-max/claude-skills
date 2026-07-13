@@ -154,6 +154,8 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                     str(root),
                     "--out",
                     str(output),
+                    "--context-dir",
+                    str(snapshot.parent),
                     "--batches",
                     "2",
                 ],
@@ -233,13 +235,91 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 os.utime(path, ns=(timestamp, timestamp))
             output = Path(temporary_directory) / "digest.txt"
 
-            completed = self._run_helper(root, output, "--limit", "1")
+            completed = self._run_helper(
+                root,
+                output,
+                "--context-dir",
+                str(older_snapshot.parent),
+                "--limit",
+                "1",
+            )
 
             digest = output.read_text(encoding="utf-8")
             self.assertIn("sessions: 1", completed.stdout)
             self.assertIn("NEWEST_SNAPSHOT_MARKER", digest)
             self.assertNotIn("OLDER_SNAPSHOT_MARKER", digest)
             self.assertNotIn("ROLLOUT_MARKER", digest)
+
+    def test_explicit_project_context_root_is_included_in_digest_and_batches(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            rollout_root = temporary / "global-rollouts"
+            project_context = temporary / "project" / ".codex" / "sessions"
+            self._write_rollout(
+                rollout_root / "rollout.jsonl", "GLOBAL_ROLLOUT_MARKER"
+            )
+            (rollout_root / "not-a-project-snapshot.md").write_text(
+                "GLOBAL_MARKDOWN_MUST_BE_IGNORED\n", encoding="utf-8"
+            )
+            project_context.mkdir(parents=True)
+            snapshot = project_context / "2026-07-13_session-1.md"
+            snapshot.write_text(
+                "PROJECT_CONTEXT_MARKER API_TOKEN=CONTEXT_SECRET\n",
+                encoding="utf-8",
+            )
+            output = temporary / "digest.txt"
+
+            completed = self._run_helper(
+                rollout_root,
+                output,
+                "--context-dir",
+                str(project_context),
+                "--batches",
+                "2",
+            )
+
+            digest = output.read_text(encoding="utf-8")
+            batch_text = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in sorted(output.parent.glob("batch*.txt"))
+            )
+            self.assertIn("sessions: 2", completed.stdout)
+            self.assertIn("GLOBAL_ROLLOUT_MARKER", digest)
+            self.assertIn("PROJECT_CONTEXT_MARKER", digest)
+            self.assertIn("PROJECT_CONTEXT_MARKER", batch_text)
+            self.assertNotIn("GLOBAL_MARKDOWN_MUST_BE_IGNORED", digest)
+            self.assertIn("<redacted>", digest)
+            self.assertNotIn("CONTEXT_SECRET", digest)
+
+    def test_repeatable_context_roots_are_deduplicated_before_limit_and_order(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            rollout_root = temporary / "global-rollouts"
+            context_root = temporary / "project" / ".codex" / "sessions"
+            rollout = rollout_root / "rollout.jsonl"
+            snapshot = context_root / "snapshot.md"
+            self._write_rollout(rollout, "OLDER_ROLLOUT_MARKER")
+            context_root.mkdir(parents=True)
+            snapshot.write_text("NEWER_CONTEXT_MARKER\n", encoding="utf-8")
+            os.utime(rollout, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(snapshot, ns=(2_000_000_000, 2_000_000_000))
+            output = temporary / "digest.txt"
+
+            completed = self._run_helper(
+                rollout_root,
+                output,
+                "--context-dir",
+                str(context_root),
+                "--context-dir",
+                str(context_root),
+                "--limit",
+                "1",
+            )
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("sessions: 1", completed.stdout)
+            self.assertIn("NEWER_CONTEXT_MARKER", digest)
+            self.assertNotIn("OLDER_ROLLOUT_MARKER", digest)
 
     def test_limit_backfills_after_newest_empty_rollout(self):
         self._assert_limit_backfills_invalid_newest("")

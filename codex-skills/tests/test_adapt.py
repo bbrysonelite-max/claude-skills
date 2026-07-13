@@ -355,6 +355,12 @@ class AdapterContractTests(unittest.TestCase):
         librarian = self.adapt_source("skills-librarian")
         brand = self.adapt_source("two-brents-brand")
         miner_reference = self.adapt_source("skill-miner", "REFERENCE.md")
+        self.assertIn("--context-dir", miner_reference)
+        self.assertIn("project-local", miner_reference)
+        self.assertNotIn(
+            "`~/.codex/sessions/**/*.jsonl` rollouts and context-keeper Markdown",
+            miner_reference,
+        )
         vault = self.adapt_source("vault-hygiene")
 
         self.assertIn("source of truth Codex loads from", librarian)

@@ -93,7 +93,8 @@ def _fallback_event_message(
 
 def _stable_id(root: Path, path: Path) -> str:
     relative = path.relative_to(root).as_posix()
-    return hashlib.sha256(relative.encode("utf-8")).hexdigest()[:8]
+    identity = f"{root.resolve().as_posix()}::{relative}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8]
 
 
 def _path_date(root: Path, path: Path) -> str:
@@ -156,24 +157,55 @@ def _read_context_snapshot(root: Path, path: Path) -> SessionRecord | None:
     )
 
 
-def collect_sessions(root: Path, limit: int = 0) -> list[SessionRecord]:
-    candidates: list[tuple[int, str, Path]] = []
-    for path in (*root.rglob("*.jsonl"), *root.rglob("*.md")):
+def _collect_candidates(
+    root: Path,
+    pattern: str,
+    kind: str,
+    candidates: dict[Path, tuple[int, str, Path, Path, str]],
+) -> None:
+    resolved_root = root.resolve(strict=True)
+    for path in root.rglob(pattern):
         try:
-            mtime = path.stat().st_mtime_ns
-        except OSError:
+            resolved_path = path.resolve(strict=True)
+            if (
+                not resolved_path.is_file()
+                or not resolved_path.is_relative_to(resolved_root)
+            ):
+                continue
+            mtime = resolved_path.stat().st_mtime_ns
+        except (OSError, RuntimeError):
             continue
-        candidates.append((mtime, path.relative_to(root).as_posix(), path))
-    candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+        identity = f"{kind}:{resolved_path.as_posix()}"
+        candidates.setdefault(
+            resolved_path,
+            (mtime, identity, resolved_root, resolved_path, kind),
+        )
+
+
+def collect_sessions(
+    root: Path,
+    limit: int = 0,
+    context_roots: Iterable[Path] = (),
+) -> list[SessionRecord]:
+    candidates_by_path: dict[Path, tuple[int, str, Path, Path, str]] = {}
+    _collect_candidates(root, "*.jsonl", "rollout", candidates_by_path)
+    for context_root in context_roots:
+        _collect_candidates(
+            context_root, "*.md", "context", candidates_by_path
+        )
+    candidates = sorted(
+        candidates_by_path.values(),
+        key=lambda candidate: (-candidate[0], candidate[1]),
+    )
     selected: list[tuple[int, str, SessionRecord]] = []
-    for mtime, relative_path, path in candidates:
+    for mtime, identity, candidate_root, path, kind in candidates:
         record = (
-            _read_rollout(root, path)
-            if path.suffix == ".jsonl"
-            else _read_context_snapshot(root, path)
+            _read_rollout(candidate_root, path)
+            if kind == "rollout"
+            else _read_context_snapshot(candidate_root, path)
         )
         if record is not None:
-            selected.append((mtime, relative_path, record))
+            selected.append((mtime, identity, record))
             if limit > 0 and len(selected) == limit:
                 break
     selected.sort(key=lambda session: (session[0], session[1]))
@@ -226,6 +258,16 @@ def main(argv: list[str] | None = None) -> int:
         "--dir", type=Path, default=Path.home() / ".codex" / "sessions"
     )
     parser.add_argument(
+        "--context-dir",
+        action="append",
+        default=[],
+        type=Path,
+        help=(
+            "project-local .codex/sessions directory containing Markdown "
+            "context snapshots; repeat for multiple projects"
+        ),
+    )
+    parser.add_argument(
         "--out", type=Path, default=Path.cwd() / "digest.txt"
     )
     parser.add_argument("--batches", type=int, default=0)
@@ -236,7 +278,18 @@ def main(argv: list[str] | None = None) -> int:
     root = args.dir.expanduser().resolve(strict=True)
     if not root.is_dir():
         parser.error(f"session directory is not a directory: {root}")
-    sessions = collect_sessions(root, args.limit)
+    context_roots: list[Path] = []
+    seen_context_roots: set[Path] = set()
+    for context_candidate in args.context_dir:
+        context_root = context_candidate.expanduser().resolve(strict=True)
+        if not context_root.is_dir():
+            parser.error(
+                f"context directory is not a directory: {context_root}"
+            )
+        if context_root not in seen_context_roots:
+            seen_context_roots.add(context_root)
+            context_roots.append(context_root)
+    sessions = collect_sessions(root, args.limit, context_roots)
     output = args.out.expanduser().resolve(strict=False)
     write_digest(sessions, output, args.batches)
     print(f"sessions: {len(sessions)}")
