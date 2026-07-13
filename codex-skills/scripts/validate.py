@@ -517,7 +517,7 @@ def _markdown_destinations(text: str) -> tuple[tuple[str, int], ...]:
     for match in REFERENCE_DEFINITION.finditer(text):
         parsed = _markdown_destination(text, match.end(), inline=False)
         if parsed is not None and parsed[0]:
-            definitions[_reference_label(match.group(1))] = parsed[0]
+            definitions.setdefault(_reference_label(match.group(1)), parsed[0])
 
     destinations: list[tuple[str, int]] = []
     index = 0

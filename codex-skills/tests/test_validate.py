@@ -275,6 +275,40 @@ class SkillValidationTests(unittest.TestCase):
 
         self.assertTrue(any("docs/missing.md" in error for error in result.errors))
 
+    def test_duplicate_shortcut_reference_uses_first_normalized_definition(self):
+        skill = make_skill(
+            self.root,
+            body=(
+                "Read the [guide].\n\n"
+                "[GUIDE]: docs/missing.md\n"
+                "[guide]: docs/existing.md\n"
+            ),
+        )
+        docs = skill / "docs"
+        docs.mkdir()
+        (docs / "existing.md").write_text("# Existing\n", encoding="utf-8")
+
+        result = validate_skill(skill)
+
+        self.assertTrue(any("docs/missing.md" in error for error in result.errors))
+
+    def test_duplicate_full_and_collapsed_references_use_first_definition(self):
+        skill = make_skill(
+            self.root,
+            body=(
+                "Read [full][g] and [g][].\n\n"
+                "[G]: docs/missing.md\n"
+                "[g]: docs/existing.md\n"
+            ),
+        )
+        docs = skill / "docs"
+        docs.mkdir()
+        (docs / "existing.md").write_text("# Existing\n", encoding="utf-8")
+
+        result = validate_skill(skill)
+
+        self.assertTrue(any("docs/missing.md" in error for error in result.errors))
+
     def test_validation_accepts_balanced_parentheses_in_link_destination(self):
         skill = make_skill(
             self.root,
