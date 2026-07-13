@@ -525,6 +525,97 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 self.assertIn(redacted_shape, digest)
             self.assertEqual(2, digest.count('PASSWORD="<redacted>"'))
 
+    def test_redacts_entire_yaml_credential_block_scalars(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            block_text = (
+                "BLOCK_SCALAR_MARKER\n"
+                "password: |\n"
+                "  FAKE_PASSWORD_FIRST_LINE\n"
+                "  FAKE_PASSWORD_SECOND_LINE\n"
+                "\n"
+                "  FAKE_PASSWORD_AFTER_BLANK\n"
+                "token: >-\n"
+                "  FAKE_TOKEN_FOLDED_LINE\n"
+                "  FAKE_TOKEN_FOLDED_TAIL\n"
+                "\n"
+                "secret: |+\n"
+                "  FAKE_SECRET_LITERAL_LINE\n"
+                "\n"
+                "  FAKE_SECRET_LITERAL_TAIL\n"
+                "SAFE_TRAILING_MARKER\n"
+            )
+            self._write_rollout(root / "blocks.jsonl", block_text)
+            output = temporary / "scratch" / "digest.txt"
+
+            self._run_helper(root, output)
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("BLOCK_SCALAR_MARKER", digest)
+            self.assertIn("SAFE_TRAILING_MARKER", digest)
+            for redacted_key in (
+                "password: <redacted>",
+                "token: <redacted>",
+                "secret: <redacted>",
+            ):
+                self.assertIn(redacted_key, digest)
+            for leaked_content in (
+                "FAKE_PASSWORD_FIRST_LINE",
+                "FAKE_PASSWORD_SECOND_LINE",
+                "FAKE_PASSWORD_AFTER_BLANK",
+                "FAKE_TOKEN_FOLDED_LINE",
+                "FAKE_TOKEN_FOLDED_TAIL",
+                "FAKE_SECRET_LITERAL_LINE",
+                "FAKE_SECRET_LITERAL_TAIL",
+            ):
+                self.assertNotIn(leaked_content, digest)
+            self.assertNotIn("password: |", digest)
+            self.assertNotIn("token: >", digest)
+            self.assertNotIn("secret: |", digest)
+
+    def test_atomic_digest_replaces_hard_link_without_mutating_rollout(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            rollout = root / "rollout.jsonl"
+            self._write_rollout(rollout, "HARD_LINK_ROLLOUT_MARKER")
+            output = temporary / "scratch" / "digest.txt"
+            self._run_helper(root, output)
+            output.unlink()
+            os.link(rollout, output)
+            rollout_bytes = rollout.read_bytes()
+            linked_inode = rollout.stat().st_ino
+            self.assertEqual(linked_inode, output.stat().st_ino)
+
+            self._run_helper(root, output)
+
+            self.assertEqual(rollout_bytes, rollout.read_bytes())
+            self.assertNotEqual(linked_inode, output.stat().st_ino)
+            self.assertTrue(output.is_file())
+            self.assertEqual(0o600, stat.S_IMODE(output.stat().st_mode))
+            self.assertIn(
+                "HARD_LINK_ROLLOUT_MARKER",
+                output.read_text(encoding="utf-8"),
+            )
+            self.assertEqual([], list(output.parent.glob(".digest.txt.*.tmp")))
+
+    def test_atomic_digest_cleans_temp_when_destination_is_a_directory(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            self._write_rollout(root / "rollout.jsonl", "ROLLOUT_MARKER")
+            output = temporary / "scratch" / "digest.txt"
+            self._run_helper(root, output)
+            output.unlink()
+            output.mkdir()
+
+            completed = self._run_helper_failure(root, output)
+
+            self.assertNotEqual(0, completed.returncode)
+            self.assertTrue(output.is_dir())
+            self.assertEqual([], list(output.parent.glob(".digest.txt.*.tmp")))
+
     def test_rejects_output_equal_to_or_inside_input_root(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "rollouts"

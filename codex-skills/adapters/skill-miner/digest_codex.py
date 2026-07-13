@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -47,6 +48,12 @@ _SECRET_ASSIGNMENT = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+_YAML_CREDENTIAL_BLOCK_HEADER = re.compile(
+    rf"^(?P<indent> *)(?P<key>{_CREDENTIAL_KEY})[ \t]*:[ \t]*"
+    r"[|>][+-]?[ \t]*(?:#[^\r\n]*)?"
+    r"(?P<newline>\r\n|\r|\n|\Z)$",
+    re.IGNORECASE,
+)
 _TOKEN_VALUE = re.compile(
     r"\b(?:sk|ghp|github_pat|xox[baprs]|ya29)[-_][A-Za-z0-9_-]{8,}\b"
 )
@@ -81,10 +88,40 @@ def _redact_secret_assignment(match: re.Match[str]) -> str:
     return match.group("prefix") + redacted
 
 
+def _redact_yaml_credential_blocks(text: str) -> str:
+    lines = text.splitlines(keepends=True)
+    redacted: list[str] = []
+    index = 0
+    while index < len(lines):
+        header = _YAML_CREDENTIAL_BLOCK_HEADER.fullmatch(lines[index])
+        if header is None:
+            redacted.append(lines[index])
+            index += 1
+            continue
+
+        redacted.append(
+            f"{header.group('indent')}{header.group('key')}: <redacted>"
+            f"{header.group('newline')}"
+        )
+        header_indent = len(header.group("indent"))
+        index += 1
+        while index < len(lines):
+            body_line = lines[index]
+            if not body_line.strip(" \t\r\n"):
+                index += 1
+                continue
+            body_indent = len(body_line) - len(body_line.lstrip(" "))
+            if body_indent <= header_indent:
+                break
+            index += 1
+    return "".join(redacted)
+
+
 def _clean_text(text: str) -> str:
     if text.lstrip().startswith(_NOISE_PREFIXES):
         return ""
     cleaned = _SYSTEM_BLOCK.sub("", text)
+    cleaned = _redact_yaml_credential_blocks(cleaned)
     cleaned = _PRIVATE_KEY.sub("<redacted>", cleaned)
     cleaned = _SECRET_ASSIGNMENT.sub(_redact_secret_assignment, cleaned)
     cleaned = _TOKEN_VALUE.sub("<redacted>", cleaned)
@@ -361,6 +398,30 @@ def _write_private_text(path: Path, text: str) -> None:
             os.close(descriptor)
 
 
+def _write_atomic_private_text(path: Path, text: str) -> None:
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp_path: Path | None = Path(temp_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output_file:
+            descriptor = -1
+            output_file.write(text)
+            output_file.flush()
+            os.fsync(output_file.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def write_digest(
     sessions: list[SessionRecord], output: Path, batches: int = 0
 ) -> None:
@@ -372,7 +433,7 @@ def write_digest(
     header = f"# skill-miner Codex digest - {len(sessions)} sessions"
     if sessions:
         header += f" ({sessions[0].date} .. {sessions[-1].date})"
-    _write_private_text(
+    _write_atomic_private_text(
         output, header + "\n" + _render(sessions) + "\n"
     )
     if batches > 1 and sessions:
