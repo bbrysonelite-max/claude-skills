@@ -4,6 +4,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.build import build_collection
 from scripts.common import (
@@ -13,6 +14,10 @@ from scripts.common import (
     parse_skill_document,
     render_skill_document,
 )
+
+
+CODEX_SKILLS_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = CODEX_SKILLS_ROOT.parent
 
 
 def entry(name="sample", output=None):
@@ -105,6 +110,42 @@ class FrontmatterTests(unittest.TestCase):
 
         self.assertEqual("Literal line.\n", parsed.description)
 
+    def test_folded_description_uses_one_newline_for_one_blank_line(self):
+        parsed = parse_skill_document(
+            "---\nname: sample\ndescription: >\n  first\n\n  second\n---\nbody\n"
+        )
+
+        self.assertEqual("first\nsecond\n", parsed.description)
+
+    def test_folded_description_preserves_more_indented_lines(self):
+        parsed = parse_skill_document(
+            "---\nname: sample\ndescription: >\n"
+            "  first\n    command\n  last\n---\nbody\n"
+        )
+
+        self.assertEqual("first\n  command\nlast\n", parsed.description)
+
+    def test_parses_agent_reach_folded_description_exactly(self):
+        parsed = parse_skill_document(
+            (REPOSITORY_ROOT / "agent-reach" / "SKILL.md").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(
+            "MUST USE when user wants to research/search/look up/find anything on the "
+            'internet — e.g. "research this topic", "do a deep dive on X", "search the '
+            'web for X", "see what people say about X", "look this up".\n'
+            "Also MUST USE when user mentions any platform or shares any URL/link: "
+            "Twitter/X, Reddit, Facebook, Instagram, YouTube, GitHub, Bilibili, XiaoHongShu, "
+            "Xiaoyuzhou Podcast, LinkedIn/jobs/recruiting, V2EX, Xueqiu (stocks), RSS.\n"
+            "15 platforms, multi-backend routing (OpenCLI / per-platform CLIs / APIs). "
+            "Zero config for 6 channels. Run `agent-reach doctor --json` to see which "
+            "backend serves each platform right now.\n"
+            "NOT for: writing reports/analysis/translation (this skill only FETCHES "
+            "internet content); posting/commenting/liking (write operations); platforms "
+            "that already have a dedicated skill installed (prefer that skill).\n",
+            parsed.description,
+        )
+
     def test_rejects_missing_empty_malformed_and_unsafe_frontmatter(self):
         invalid = {
             "missing opening delimiter": "name: sample\ndescription: useful\n---\nbody",
@@ -187,6 +228,70 @@ class BuildTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(short_description), 25)
         self.assertLessEqual(len(short_description), 64)
+        self.assertTrue((self.output / ".codex-skills-generated").is_file())
+
+    def test_allows_only_canonical_output_inside_repository(self):
+        self.make_skill()
+        canonical = self.repo_root / "codex-skills" / "skills"
+        canonical.parent.mkdir()
+
+        result = build_collection(self.repo_root, manifest(entry()), canonical)
+
+        self.assertEqual(canonical.resolve(), result.output_dir)
+        self.assertTrue((canonical / ".codex-skills-generated").is_file())
+
+    def test_rejects_git_and_docs_outputs_without_deleting_contents(self):
+        self.make_skill()
+        for relative in (".git", "docs"):
+            with self.subTest(relative=relative):
+                output = self.repo_root / relative
+                output.mkdir()
+                sentinel = output / "sentinel.txt"
+                sentinel.write_text("keep\n", encoding="utf-8")
+
+                with self.assertRaisesRegex(ValueError, "canonical"):
+                    build_collection(self.repo_root, manifest(entry()), output)
+
+                self.assertEqual("keep\n", sentinel.read_text(encoding="utf-8"))
+
+    def test_rejects_expanded_tilde_output_symlink(self):
+        self.make_skill()
+        fake_home = Path(self.output_parent.name) / "home"
+        fake_home.mkdir()
+        target = Path(self.output_parent.name) / "target"
+        target.mkdir()
+        (fake_home / "output").symlink_to(target, target_is_directory=True)
+
+        with patch.dict(os.environ, {"HOME": str(fake_home)}):
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                build_collection(self.repo_root, manifest(entry()), Path("~/output"))
+
+        self.assertEqual([], list(target.iterdir()))
+
+    def test_rejects_unowned_nonempty_external_output(self):
+        self.make_skill()
+        self.output.mkdir()
+        sentinel = self.output / "sentinel.txt"
+        sentinel.write_text("keep\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "not builder-owned"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+
+        self.assertEqual("keep\n", sentinel.read_text(encoding="utf-8"))
+
+    def test_preserves_old_generated_output_when_staged_copy_fails(self):
+        skill = self.make_skill()
+        resource = skill / "resource.txt"
+        resource.write_text("first\n", encoding="utf-8")
+        build_collection(self.repo_root, manifest(entry()), self.output)
+        before = self.snapshot(self.output)
+        resource.write_text("second\n", encoding="utf-8")
+
+        with patch("scripts.build._copy_resource", side_effect=OSError("copy failed")):
+            with self.assertRaisesRegex(OSError, "copy failed"):
+                build_collection(self.repo_root, manifest(entry()), self.output)
+
+        self.assertEqual(before, self.snapshot(self.output))
 
     def test_display_name_comes_from_hyphenated_output_name(self):
         self.make_skill("source-name", "A sufficiently useful source description.")
@@ -220,6 +325,21 @@ class BuildTests(unittest.TestCase):
         copied_script = self.output / "sample" / "scripts" / "run.sh"
         self.assertEqual("guide\n", (self.output / "sample" / "references" / "guide.md").read_text())
         self.assertTrue(copied_script.stat().st_mode & stat.S_IXUSR)
+
+    def test_populates_read_only_resource_directory_before_preserving_mode(self):
+        skill = self.make_skill()
+        read_only = skill / "references"
+        read_only.mkdir()
+        (read_only / "guide.md").write_text("guide\n", encoding="utf-8")
+        read_only.chmod(0o555)
+        try:
+            build_collection(self.repo_root, manifest(entry()), self.output)
+        finally:
+            read_only.chmod(0o755)
+
+        copied = self.output / "sample" / "references"
+        self.assertEqual("guide\n", (copied / "guide.md").read_text(encoding="utf-8"))
+        self.assertEqual(0o555, stat.S_IMODE(copied.stat().st_mode))
 
     def test_excludes_generated_metadata_and_runtime_or_cache_files(self):
         skill = self.make_skill()
@@ -294,6 +414,30 @@ class BuildTests(unittest.TestCase):
         copied = self.output / "sample" / "alias.txt"
         self.assertTrue(copied.is_symlink())
         self.assertEqual("target.txt", os.readlink(copied))
+        self.assertTrue(copied.resolve().is_relative_to(self.output.resolve() / "sample"))
+        self.assertEqual(b"target\n", copied.resolve().read_bytes())
+
+    def test_rejects_symlink_to_excluded_runtime_directory(self):
+        skill = self.make_skill()
+        runtime = skill / "runtime"
+        runtime.mkdir()
+        (runtime / "state.json").write_text("state\n", encoding="utf-8")
+        (skill / "runtime-link").symlink_to("runtime", target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "excluded"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+        self.assertFalse(self.output.exists())
+
+    def test_rejects_symlink_to_replaced_source_openai_metadata(self):
+        skill = self.make_skill()
+        source_metadata = skill / "agents" / "openai.yaml"
+        source_metadata.parent.mkdir()
+        source_metadata.write_text("source metadata\n", encoding="utf-8")
+        (skill / "metadata-link").symlink_to("agents/openai.yaml")
+
+        with self.assertRaisesRegex(ValueError, "excluded"):
+            build_collection(self.repo_root, manifest(entry()), self.output)
+        self.assertFalse(self.output.exists())
 
     def test_rejects_absolute_symlink_even_when_target_is_internal(self):
         skill = self.make_skill()
@@ -380,6 +524,29 @@ class BuildTests(unittest.TestCase):
         build_collection(self.repo_root, manifest(entry()), self.output)
 
         self.assertEqual(before, self.snapshot(skill, follow_symlinks=False))
+
+    def test_preserves_crlf_body_bytes_deterministically(self):
+        skill = self.repo_root / "sample"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(
+            b"---\r\nname: sample\r\ndescription: Useful skill.\r\n---\r\n"
+            b"\r\n# Body\r\nBody contents.\r\n"
+        )
+        expected = (
+            b'---\nname: "sample"\ndescription: "Useful skill."\n---\n'
+            b"\r\n# Body\r\nBody contents.\r\n"
+        )
+
+        build_collection(self.repo_root, manifest(entry()), self.output)
+        first = (self.output / "sample" / "SKILL.md").read_bytes()
+        metadata = (self.output / "sample" / "agents" / "openai.yaml").read_bytes()
+        build_collection(self.repo_root, manifest(entry()), self.output)
+        second = (self.output / "sample" / "SKILL.md").read_bytes()
+
+        self.assertEqual(expected, first)
+        self.assertNotIn(b"\r\r\n", first)
+        self.assertNotIn(b"\r", metadata)
+        self.assertEqual(first, second)
 
     @staticmethod
     def parse_generated_yaml(text):

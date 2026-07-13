@@ -5,6 +5,8 @@ import json
 import os
 import re
 import shutil
+import stat
+import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -44,6 +46,7 @@ EXCLUDED_DIRECTORIES = {
     "runtime",
 }
 EXCLUDED_FILENAMES = {".DS_Store"}
+GENERATED_MARKER = ".codex-skills-generated"
 
 
 @dataclass(frozen=True)
@@ -71,11 +74,18 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 def _validate_output_path(
     repo_root: Path, protected_paths: list[Path], output_dir: Path
 ) -> Path:
-    resolved_output = output_dir.expanduser().resolve(strict=False)
-    if output_dir.is_symlink():
-        raise ValueError(f"unsafe output path is a symlink: {output_dir}")
+    expanded_output = output_dir.expanduser()
+    if expanded_output.is_symlink():
+        raise ValueError(f"unsafe output path is a symlink: {expanded_output}")
+    resolved_output = expanded_output.resolve(strict=False)
     if resolved_output == repo_root or repo_root.is_relative_to(resolved_output):
         raise ValueError(f"unsafe output path overlaps repository root: {output_dir}")
+    canonical_output = (repo_root / "codex-skills" / "skills").resolve(strict=False)
+    is_canonical = resolved_output == canonical_output
+    if resolved_output.is_relative_to(repo_root) and not is_canonical:
+        raise ValueError(
+            f"unsafe output: in-repository output must use canonical path {canonical_output}"
+        )
     for protected_path in protected_paths:
         if _is_relative_to(resolved_output, protected_path) or _is_relative_to(
             protected_path, resolved_output
@@ -83,6 +93,12 @@ def _validate_output_path(
             raise ValueError(f"unsafe output path overlaps protected input: {output_dir}")
     if resolved_output.exists() and not resolved_output.is_dir():
         raise ValueError(f"unsafe output path is not a directory: {output_dir}")
+    if resolved_output.is_dir() and not is_canonical:
+        contents = list(resolved_output.iterdir())
+        marker = resolved_output / GENERATED_MARKER
+        is_owned = marker.is_file() and not marker.is_symlink()
+        if contents and not is_owned:
+            raise ValueError(f"external output is not builder-owned: {output_dir}")
     return resolved_output
 
 
@@ -137,7 +153,21 @@ def _collect_resources(source_dir: Path) -> tuple[Path, ...]:
             if path.is_symlink():
                 _validate_symlink(path, source_dir)
             resources.append(path)
-    return tuple(sorted(resources, key=lambda path: path.relative_to(source_dir).as_posix()))
+    collected = tuple(
+        sorted(resources, key=lambda path: path.relative_to(source_dir).as_posix())
+    )
+    included_targets = {
+        path.relative_to(source_dir) for path in collected if not path.is_symlink()
+    }
+    for path in collected:
+        if not path.is_symlink():
+            continue
+        target_relative = path.resolve(strict=True).relative_to(source_dir)
+        if target_relative not in included_targets:
+            raise ValueError(
+                f"unsafe symlink target is excluded from {source_dir.name}: {path}"
+            )
+    return collected
 
 
 def _display_name(output_name: str) -> str:
@@ -172,6 +202,11 @@ def _metadata(entry: SkillEntry, description: str) -> str:
         for key, value in interface.items()
     )
     return "\n".join(lines) + "\n"
+
+
+def _write_text_exact(path: Path, content: str) -> None:
+    with path.open("w", encoding="utf-8", newline="") as output_file:
+        output_file.write(content)
 
 
 def _validate_sources(repo_root: Path, manifest: Manifest) -> list[_ValidatedSource]:
@@ -215,10 +250,50 @@ def _copy_resource(path: Path, source_dir: Path, destination_dir: Path) -> None:
         destination.symlink_to(os.readlink(path), target_is_directory=path.is_dir())
     elif path.is_dir():
         destination.mkdir(parents=True, exist_ok=True)
-        shutil.copystat(path, destination, follow_symlinks=False)
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, destination, follow_symlinks=False)
+
+
+def _apply_directory_metadata(
+    resources: tuple[Path, ...], source_dir: Path, destination_dir: Path
+) -> None:
+    directories = sorted(
+        (path for path in resources if path.is_dir() and not path.is_symlink()),
+        key=lambda path: len(path.relative_to(source_dir).parts),
+        reverse=True,
+    )
+    for directory in directories:
+        destination = destination_dir / directory.relative_to(source_dir)
+        shutil.copystat(directory, destination, follow_symlinks=False)
+
+
+def _remove_generated_tree(path: Path) -> None:
+    def make_writable(function, target, _error):
+        os.chmod(target, stat.S_IRWXU)
+        function(target)
+
+    shutil.rmtree(path, onexc=make_writable)
+
+
+def _replace_output(staging_dir: Path, output_dir: Path) -> None:
+    backup_dir: Path | None = None
+    if output_dir.exists():
+        backup_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f".{output_dir.name}.backup-", dir=output_dir.parent
+            )
+        )
+        backup_dir.rmdir()
+        output_dir.rename(backup_dir)
+    try:
+        staging_dir.rename(output_dir)
+    except BaseException:
+        if backup_dir is not None:
+            backup_dir.rename(output_dir)
+        raise
+    if backup_dir is not None:
+        _remove_generated_tree(backup_dir)
 
 
 def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> BuildResult:
@@ -240,24 +315,40 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
         Path(output_dir),
     )
 
-    if resolved_output.exists():
-        shutil.rmtree(resolved_output)
-    resolved_output.mkdir(parents=True)
-
-    for source in validated:
-        destination = resolved_output / source.entry.output
-        destination.mkdir()
-        output_document = replace(source.document, name=source.entry.output)
-        (destination / "SKILL.md").write_text(
-            render_skill_document(output_document), encoding="utf-8"
+    resolved_output.parent.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{resolved_output.name}.staging-", dir=resolved_output.parent
         )
-        for resource in source.resources:
-            _copy_resource(resource, source.source_dir, destination)
-        agents_dir = destination / "agents"
-        agents_dir.mkdir(parents=True, exist_ok=True)
-        (agents_dir / "openai.yaml").write_text(
-            _metadata(source.entry, source.document.description), encoding="utf-8"
+    )
+    try:
+        for source in validated:
+            destination = staging_dir / source.entry.output
+            destination.mkdir()
+            output_document = replace(source.document, name=source.entry.output)
+            _write_text_exact(
+                destination / "SKILL.md", render_skill_document(output_document)
+            )
+            for resource in source.resources:
+                _copy_resource(resource, source.source_dir, destination)
+            agents_dir = destination / "agents"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            _write_text_exact(
+                agents_dir / "openai.yaml",
+                _metadata(source.entry, source.document.description),
+            )
+            _apply_directory_metadata(
+                source.resources, source.source_dir, destination
+            )
+        _write_text_exact(
+            staging_dir / GENERATED_MARKER,
+            "Generated by codex-skills/scripts/build.py.\n",
         )
+        _replace_output(staging_dir, resolved_output)
+    except BaseException:
+        if staging_dir.exists():
+            _remove_generated_tree(staging_dir)
+        raise
 
     return BuildResult(
         output_dir=resolved_output,

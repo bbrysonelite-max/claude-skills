@@ -91,22 +91,32 @@ def _parse_block_scalar(lines: list[str], style: str) -> str:
             content.pop()
         return "\n".join(content) + ("\n" if content else "")
 
-    paragraphs: list[str] = []
-    current: list[str] = []
-    blank_count = 0
-    for line in content:
-        if line:
-            if blank_count and current:
-                paragraphs.append(" ".join(current))
-                paragraphs.extend("" for _ in range(blank_count - 1))
-                current = []
-            blank_count = 0
-            current.append(line)
-        else:
+    while content and not content[-1]:
+        content.pop()
+    folded: list[str] = []
+    index = 0
+    while index < len(content):
+        line = content[index]
+        if not line:
+            folded.append("\n")
+            index += 1
+            continue
+        folded.append(line)
+        next_index = index + 1
+        blank_count = 0
+        while next_index < len(content) and not content[next_index]:
             blank_count += 1
-    if current:
-        paragraphs.append(" ".join(current))
-    return "\n\n".join(paragraphs) + "\n"
+            next_index += 1
+        if next_index >= len(content):
+            break
+        if blank_count:
+            folded.append("\n" * blank_count)
+        else:
+            next_line = content[next_index]
+            separator = "\n" if line.startswith(" ") or next_line.startswith(" ") else " "
+            folded.append(separator)
+        index = next_index
+    return "".join(folded) + ("\n" if content else "")
 
 
 def parse_skill_document(text: str) -> SkillDocument:
