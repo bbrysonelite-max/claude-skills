@@ -1584,6 +1584,10 @@ def render_report(report: CollectionReport) -> str:
         if all(result.passed for result in report.injected_defect_results)
         else "FAIL"
     )
+    injection_passes = sum(
+        result.passed for result in report.injected_defect_results
+    )
+    injection_total = len(report.injected_defect_results)
     lines = [
         "# Codex Skills Validation",
         "",
@@ -1603,7 +1607,12 @@ def render_report(report: CollectionReport) -> str:
         f"{report.dependency_secret_count} no-secret clauses",
         f"- **Official validator:** {report.official_passes}/{len(report.official_results)} passed",
         f"- **Regression suites:** **{regression_status}**",
-        f"- **Injected defect checks:** **{injection_status}**",
+        (
+            f"- **Injected defect checks:** **{injection_status}**; "
+            f"{injection_passes}/{injection_total} detected"
+            if report.injected_defect_results
+            else f"- **Injected defect checks:** **{injection_status}**"
+        ),
         (
             f"- **Installability:** {report.installed_count}/{report.skill_count} generated "
             "names satisfied by installed managed links"
@@ -1670,19 +1679,19 @@ def render_report(report: CollectionReport) -> str:
         lines.append("Regression suites: **NOT OBSERVED**.")
     lines.append("")
     if report.injected_defect_results:
-        category_counts: dict[str, tuple[int, int]] = {}
-        for result in report.injected_defect_results:
-            passed, total = category_counts.get(result.category, (0, 0))
-            category_counts[result.category] = (passed + result.passed, total + 1)
         lines.extend(
             [
-                "| Injected defect category | Detected | Result |",
-                "|---|---:|---|",
+                "| Injected defect category | Exact injected defect | Detection | Result |",
+                "|---|---|---|---|",
             ]
         )
-        for category, (passed, total) in sorted(category_counts.items()):
-            result_text = "PASS" if passed == total else "FAIL"
-            lines.append(f"| {category} | {passed}/{total} | {result_text} |")
+        for result in report.injected_defect_results:
+            detection = "detected" if result.passed else "not detected"
+            result_text = "PASS" if result.passed else "FAIL"
+            lines.append(
+                f"| {result.category} | `{result.name}` | {detection} | "
+                f"{result_text} |"
+            )
     else:
         lines.append("Injected defect checks: **NOT OBSERVED**.")
     lines.extend(

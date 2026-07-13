@@ -8,7 +8,7 @@
 - **Runtime contracts:** 52 sections; 6 native absences; 40 dependency preflights; 40 no-secret clauses
 - **Official validator:** 58/58 passed
 - **Regression suites:** **PASS**
-- **Injected defect checks:** **PASS**
+- **Injected defect checks:** **PASS**; 9/9 detected
 - **Installability:** generated names and resources validated; personal installation not inspected
 
 ## Schema, Metadata, Runtime, and Resources
@@ -25,15 +25,20 @@ Fallback evidence: online dependency resolution failed, then the cached `UV_OFFL
 
 | Interpreter | Observed tests | Result |
 |---|---:|---|
-| Python 3.14.5 | 196/196 | PASS |
-| Python 3.11.15 | 196/196 | PASS |
+| Python 3.14.5 | 197/197 | PASS |
+| Python 3.11.15 | 197/197 | PASS |
 
-| Injected defect category | Detected | Result |
-|---|---:|---|
-| Claude runtime compatibility | 2/2 | PASS |
-| frontmatter and metadata | 2/2 | PASS |
-| local resource integrity | 2/2 | PASS |
-| resource syntax | 3/3 | PASS |
+| Injected defect category | Exact injected defect | Detection | Result |
+|---|---|---|---|
+| Claude runtime compatibility | `Claude Code session environment` | detected | PASS |
+| Claude runtime compatibility | `Claude-only tool` | detected | PASS |
+| frontmatter and metadata | `extra frontmatter field` | detected | PASS |
+| frontmatter and metadata | `missing default prompt token` | detected | PASS |
+| local resource integrity | `missing inline script` | detected | PASS |
+| local resource integrity | `broken Markdown link` | detected | PASS |
+| resource syntax | `invalid py syntax` | detected | PASS |
+| resource syntax | `invalid sh syntax` | detected | PASS |
+| resource syntax | `invalid js syntax` | detected | PASS |
 
 ## Syntax Checks
 

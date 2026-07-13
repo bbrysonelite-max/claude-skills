@@ -631,7 +631,26 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertIn("DNS lookup failed", text)
         self.assertIn("Python 3.14.5", text)
         self.assertIn("193/193", text)
-        self.assertIn("| Claude runtime compatibility | 1/1 | PASS |", text)
+        self.assertIn(
+            "| Claude runtime compatibility | `session variable` | detected | PASS |",
+            text,
+        )
+
+    def test_report_lists_every_observed_injected_defect_once_and_totals_nine(self):
+        injected = run_injected_defect_validation()
+        report = replace(
+            CollectionReport.empty(self.repo),
+            injected_defect_results=injected,
+        )
+
+        text = render_report(report)
+
+        self.assertEqual(9, len(injected))
+        self.assertIn("**Injected defect checks:** **PASS**; 9/9 detected", text)
+        for result in injected:
+            with self.subTest(name=result.name):
+                self.assertEqual(1, text.count(f"| `{result.name}` |"))
+                self.assertIn(f"| {result.category} | `{result.name}` |", text)
 
     def test_report_does_not_claim_unobserved_regression_or_injection_passes(self):
         text = render_report(CollectionReport.empty(self.repo))
