@@ -27,8 +27,10 @@ Mine recurring routines from Codex history, deduplicate them, and propose only t
 
 1. Digest current Codex history with the generated helper:
    ```bash
-   cd "$SCRATCH_DIR"
    PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+   SCRATCH_DIR="$(mktemp -d "${TMPDIR:-/tmp}/skill-miner.XXXXXX")"
+   chmod 700 "$SCRATCH_DIR"
+   cd "$SCRATCH_DIR"
    python3 "$SKILL_DIR/scripts/digest_codex.py" --dir "$HOME/.codex/sessions" --context-dir "$PROJECT_ROOT/.codex/sessions" --out "$SCRATCH_DIR/digest.txt" --batches 3 --limit <N>
    ```
    Pass the project flag only when that directory exists. Omit `--limit` when the user requests the full history. For cross-project mining, add an additional `--context-dir` argument with `"<project-root>/.codex/sessions"` for each approved root. The helper deduplicates candidates, ranks valid rollouts and snapshots together, excludes tool payloads, and redacts credential-shaped values.

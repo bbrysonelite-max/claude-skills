@@ -9,11 +9,11 @@ Combine today's meetings and open tasks into a compact standup summary without c
 
 ## Codex Runtime
 
-- **Dependencies:** connected Calendar and Gmail apps or gws CLI; Google Workspace credentials
-- `connected Calendar and Gmail apps or gws CLI`
+- **Dependencies:** connected Google Calendar and Google Tasks capabilities or gws CLI; Google Workspace credentials
+- `connected Google Calendar and Google Tasks capabilities or gws CLI`
 - `Google Workspace credentials`
 - **Execution:** Operate directly in the main Codex agent.
-- Prefer connected Calendar and Google Tasks capabilities; the `gws` CLI fallback is `gws workflow +standup-report`. Use connected Gmail only for explicitly requested mail context.
+- Prefer connected Google Calendar and Google Tasks capabilities; the `gws` CLI fallback is `gws workflow +standup-report`. Gmail is optional and used only for explicitly requested mail context.
 - Never print, log, or expose secret values.
 
 ## Inputs and Preflight

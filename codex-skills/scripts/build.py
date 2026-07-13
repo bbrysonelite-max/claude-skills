@@ -61,6 +61,12 @@ EXCLUDED_DIRECTORIES = {
 EXCLUDED_FILENAMES = {".DS_Store"}
 GENERATED_MARKER = ".codex-skills-generated"
 GENERATED_ADAPTER_RESOURCES = {
+    "context-keeper": (
+        (
+            Path("codex-skills/adapters/context-keeper/new-session.sh"),
+            Path("scripts/new-session.sh"),
+        ),
+    ),
     "skill-miner": (
         (
             Path("codex-skills/adapters/skill-miner/digest_codex.py"),

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,15 +20,17 @@ _SYSTEM_BLOCK = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 _SECRET_ASSIGNMENT = re.compile(
-    r"\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)"
-    r"[A-Z0-9_]*)\s*[:=]\s*([^\s,;]+)",
+    r"\b((?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH)|"
+    r"(?:[A-Z][A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH)))"
+    r"\s*[:=]\s*([^\s,;]+)",
     re.IGNORECASE,
 )
 _TOKEN_VALUE = re.compile(
     r"\b(?:sk|ghp|github_pat|xox[baprs]|ya29)[-_][A-Za-z0-9_-]{8,}\b"
 )
 _PRIVATE_KEY = re.compile(
-    r"-----BEGIN [^-]+ PRIVATE KEY-----.*?-----END [^-]+ PRIVATE KEY-----",
+    r"-----BEGIN (?P<label>(?:(?:RSA|EC|OPENSSH) )?PRIVATE KEY)-----.*?"
+    r"-----END (?P=label)-----",
     re.DOTALL,
 )
 _NOISE_PREFIXES = (
@@ -36,6 +39,8 @@ _NOISE_PREFIXES = (
     "# AGENTS.md instructions",
 )
 _OWNED_BATCH_NAME = re.compile(r"batch[1-9][0-9]*\.txt")
+_OWNER_MARKER_NAME = ".skill-miner-digest-owned"
+_OWNER_MARKER_CONTENT = "skill-miner-digest scratch v1\n"
 
 
 @dataclass(frozen=True)
@@ -224,10 +229,110 @@ def _render(sessions: Iterable[SessionRecord]) -> str:
     return "\n".join(lines)
 
 
+def _normalized_absolute(path: Path) -> Path:
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        expanded = Path.cwd() / expanded
+    lexical = Path(os.path.abspath(expanded))
+    parts = lexical.parts
+    candidate = Path(lexical.anchor)
+    remaining = parts[1:]
+
+    # macOS exposes trusted temporary roots through top-level aliases such as
+    # /var -> /private/var. Normalize only that protected prefix, then reject
+    # every lower symlink component instead of following it.
+    if len(remaining) > 1:
+        top_level = candidate / remaining[0]
+        if top_level.exists() or top_level.is_symlink():
+            candidate = top_level.resolve(strict=True)
+            remaining = remaining[1:]
+    for part in remaining:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError(
+                f"output path must not contain symlinks: {candidate}"
+            )
+    return candidate
+
+
+def _reject_symlink_components(path: Path) -> None:
+    for candidate in (*reversed(path.parents), path):
+        if candidate.is_symlink():
+            raise ValueError(
+                f"output path must not contain symlinks: {candidate}"
+            )
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    return (
+        left == right
+        or left.is_relative_to(right)
+        or right.is_relative_to(left)
+    )
+
+
+def _prepare_scratch(output: Path, input_roots: Iterable[Path]) -> Path:
+    _reject_symlink_components(output)
+    scratch = output.parent
+    for input_root in input_roots:
+        if _paths_overlap(scratch, input_root):
+            raise ValueError(
+                f"output directory overlaps input directory: {scratch}"
+            )
+
+    if scratch.exists() and not scratch.is_dir():
+        raise ValueError(f"output directory is not a directory: {scratch}")
+    scratch.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _reject_symlink_components(output)
+    scratch.chmod(0o700)
+
+    marker = scratch / _OWNER_MARKER_NAME
+    if marker.is_symlink():
+        raise ValueError(f"scratch ownership marker must not be a symlink: {marker}")
+    if marker.exists():
+        if not marker.is_file():
+            raise ValueError(f"invalid scratch ownership marker: {marker}")
+        try:
+            marker_content = marker.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ValueError(
+                f"cannot read scratch ownership marker: {marker}"
+            ) from error
+        if marker_content != _OWNER_MARKER_CONTENT:
+            raise ValueError(f"invalid scratch ownership marker: {marker}")
+    else:
+        if any(scratch.iterdir()):
+            raise ValueError(
+                f"refusing nonempty unowned output directory: {scratch}"
+            )
+        try:
+            with marker.open("x", encoding="utf-8") as marker_file:
+                marker_file.write(_OWNER_MARKER_CONTENT)
+            marker.chmod(0o600)
+        except FileExistsError:
+            raise ValueError(
+                f"scratch ownership marker appeared concurrently: {marker}"
+            ) from None
+    return output
+
+
+def _write_private_text(path: Path, text: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output_file:
+            descriptor = -1
+            output_file.write(text)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def write_digest(
     sessions: list[SessionRecord], output: Path, batches: int = 0
 ) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
     for path in output.parent.glob("batch*.txt"):
         if _OWNED_BATCH_NAME.fullmatch(path.name) and (
             path.is_file() or path.is_symlink()
@@ -236,7 +341,9 @@ def write_digest(
     header = f"# skill-miner Codex digest - {len(sessions)} sessions"
     if sessions:
         header += f" ({sessions[0].date} .. {sessions[-1].date})"
-    output.write_text(header + "\n" + _render(sessions) + "\n", encoding="utf-8")
+    _write_private_text(
+        output, header + "\n" + _render(sessions) + "\n"
+    )
     if batches > 1 and sessions:
         size = (len(sessions) + batches - 1) // batches
         for index in range(batches):
@@ -244,9 +351,9 @@ def write_digest(
             if not chunk:
                 continue
             batch_path = output.parent / f"batch{index + 1}.txt"
-            batch_path.write_text(
+            _write_private_text(
+                batch_path,
                 f"# batch {index + 1}/{batches}\n" + _render(chunk) + "\n",
-                encoding="utf-8",
             )
 
 
@@ -289,8 +396,12 @@ def main(argv: list[str] | None = None) -> int:
         if context_root not in seen_context_roots:
             seen_context_roots.add(context_root)
             context_roots.append(context_root)
+    try:
+        output = _normalized_absolute(args.out)
+        _prepare_scratch(output, (root, *context_roots))
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     sessions = collect_sessions(root, args.limit, context_roots)
-    output = args.out.expanduser().resolve(strict=False)
     write_digest(sessions, output, args.batches)
     print(f"sessions: {len(sessions)}")
     print(f"messages: {sum(len(session.messages) for session in sessions)}")

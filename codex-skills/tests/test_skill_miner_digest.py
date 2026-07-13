@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,24 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             text=True,
         )
 
+    def _run_helper_failure(
+        self, root: Path, output: Path, *extra_arguments: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(HELPER_PATH),
+                "--dir",
+                str(root),
+                "--out",
+                str(output),
+                *extra_arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def _assert_limit_backfills_invalid_newest(
         self, newest_content: str
     ) -> None:
@@ -56,7 +75,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             newest.write_text(newest_content, encoding="utf-8")
             os.utime(older, ns=(1_000_000_000, 1_000_000_000))
             os.utime(newest, ns=(2_000_000_000, 2_000_000_000))
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
 
             completed = self._run_helper(root, output, "--limit", "1")
 
@@ -144,7 +163,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 "Recurring routine: reconcile release notes after each deploy.\n",
                 encoding="utf-8",
             )
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
 
             completed = subprocess.run(
                 [
@@ -190,7 +209,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             self._write_rollout(older, "OLDER_ROLLOUT_MARKER")
             os.utime(older, ns=(1_000_000_000, 1_000_000_000))
             os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
 
             completed = self._run_helper(root, output, "--limit", "1")
 
@@ -209,7 +228,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             tied_time = 3_000_000_000
             os.utime(first, ns=(tied_time, tied_time))
             os.utime(second, ns=(tied_time, tied_time))
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
 
             self._run_helper(root, output, "--limit", "1")
 
@@ -233,7 +252,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 (newer_snapshot, 3_000_000_000),
             ):
                 os.utime(path, ns=(timestamp, timestamp))
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
 
             completed = self._run_helper(
                 root,
@@ -267,7 +286,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 "PROJECT_CONTEXT_MARKER API_TOKEN=CONTEXT_SECRET\n",
                 encoding="utf-8",
             )
-            output = temporary / "digest.txt"
+            output = temporary / "scratch" / "digest.txt"
 
             completed = self._run_helper(
                 rollout_root,
@@ -303,7 +322,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             snapshot.write_text("NEWER_CONTEXT_MARKER\n", encoding="utf-8")
             os.utime(rollout, ns=(1_000_000_000, 1_000_000_000))
             os.utime(snapshot, ns=(2_000_000_000, 2_000_000_000))
-            output = temporary / "digest.txt"
+            output = temporary / "scratch" / "digest.txt"
 
             completed = self._run_helper(
                 rollout_root,
@@ -350,7 +369,7 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             self._write_rollout(older, "OLDER_RENDER_MARKER")
             os.utime(older, ns=(1_000_000_000, 1_000_000_000))
             os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
 
             self._run_helper(root, output, "--limit", "2")
 
@@ -368,10 +387,20 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 self._write_rollout(rollout, f"SESSION_{index}_MARKER")
                 timestamp = index * 1_000_000_000
                 os.utime(rollout, ns=(timestamp, timestamp))
-            output = Path(temporary_directory) / "digest.txt"
+            output = Path(temporary_directory) / "scratch" / "digest.txt"
+            self._run_helper(root, output, "--batches", "3")
+            marker = output.parent / ".skill-miner-digest-owned"
+            self.assertEqual(
+                "skill-miner-digest scratch v1\n",
+                marker.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(0o700, stat.S_IMODE(output.parent.stat().st_mode))
+            for private_file in (output, marker, output.parent / "batch1.txt"):
+                self.assertEqual(
+                    0o600, stat.S_IMODE(private_file.stat().st_mode)
+                )
             unrelated = output.parent / "batch-not-owned.txt"
             unrelated.write_text("keep me\n", encoding="utf-8")
-            self._run_helper(root, output, "--batches", "3")
             self.assertTrue(all(
                 (output.parent / f"batch{index}.txt").is_file()
                 for index in range(1, 4)
@@ -389,6 +418,157 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             self.assertIn("SESSION_3_MARKER", digest)
             self.assertNotIn("SESSION_1_MARKER", digest)
             self.assertNotIn("SESSION_2_MARKER", digest)
+
+    def test_redacts_exact_common_credentials_and_private_key_blocks(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            assignments = {
+                "PASSWORD": "ExactPasswordValue",
+                "TOKEN": "ExactTokenValue",
+                "SECRET": "ExactSecretValue",
+                "KEY": "ExactKeyValue",
+                "DB_PASSWORD": "DatabasePasswordValue",
+                "API_TOKEN": "ApiTokenValue",
+                "CLIENT_SECRET": "ClientSecretValue",
+                "OPENAI_API_KEY": "ApiKeyValue",
+            }
+            assignment_text = " ".join(
+                f"{name}={value}" for name, value in assignments.items()
+            )
+            self._write_rollout(
+                root / "assignments.jsonl",
+                f"ASSIGNMENT_MARKER {assignment_text}",
+            )
+            key_types = ("PRIVATE", "RSA PRIVATE", "EC PRIVATE", "OPENSSH PRIVATE")
+            key_bodies = []
+            for index, key_type in enumerate(key_types, 1):
+                body = f"FAKE_PRIVATE_KEY_BODY_{index}_MUST_NOT_APPEAR"
+                key_bodies.append(body)
+                self._write_rollout(
+                    root / f"key-{index}.jsonl",
+                    f"KEY_MARKER_{index}\n-----BEGIN {key_type} KEY-----\n"
+                    f"{body}\n-----END {key_type} KEY-----",
+                )
+            output = temporary / "scratch" / "digest.txt"
+
+            self._run_helper(root, output)
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("ASSIGNMENT_MARKER", digest)
+            self.assertIn("<redacted>", digest)
+            for value in (*assignments.values(), *key_bodies):
+                self.assertNotIn(value, digest)
+            for key_type in key_types:
+                self.assertNotIn(f"BEGIN {key_type} KEY", digest)
+                self.assertNotIn(f"END {key_type} KEY", digest)
+
+    def test_rejects_output_equal_to_or_inside_input_root(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "rollouts"
+            rollout = root / "rollout.jsonl"
+            self._write_rollout(rollout, "INPUT_MUST_SURVIVE")
+            original = rollout.read_bytes()
+
+            equal = self._run_helper_failure(root, rollout)
+            inside = self._run_helper_failure(
+                root, root / "scratch" / "digest.txt"
+            )
+
+            self.assertNotEqual(0, equal.returncode)
+            self.assertNotEqual(0, inside.returncode)
+            self.assertEqual(original, rollout.read_bytes())
+            self.assertFalse((root / "scratch").exists())
+
+    def test_rejects_output_symlink_and_symlinked_parent(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            rollout = root / "rollout.jsonl"
+            self._write_rollout(rollout, "INPUT_MUST_SURVIVE")
+            scratch = temporary / "scratch"
+            scratch.mkdir()
+            output_link = scratch / "digest.txt"
+            output_link.symlink_to(rollout)
+            linked_parent = temporary / "linked-scratch"
+            linked_parent.symlink_to(root, target_is_directory=True)
+            outside = temporary / "outside"
+            existing_child = outside / "existing-child"
+            existing_child.mkdir(parents=True)
+            linked_ancestor = temporary / "linked-ancestor"
+            linked_ancestor.symlink_to(outside, target_is_directory=True)
+
+            direct = self._run_helper_failure(root, output_link)
+            parent = self._run_helper_failure(
+                root, linked_parent / "digest.txt"
+            )
+            ancestor = self._run_helper_failure(
+                root, linked_ancestor / existing_child.name / "digest.txt"
+            )
+
+            self.assertNotEqual(0, direct.returncode)
+            self.assertNotEqual(0, parent.returncode)
+            self.assertNotEqual(0, ancestor.returncode)
+            self.assertIn("INPUT_MUST_SURVIVE", rollout.read_text(encoding="utf-8"))
+
+    def test_rejects_nonempty_unowned_scratch_directory(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            self._write_rollout(root / "rollout.jsonl", "ROLLOUT_MARKER")
+            scratch = temporary / "scratch"
+            scratch.mkdir()
+            unrelated = scratch / "unrelated.txt"
+            unrelated.write_text("preserve me\n", encoding="utf-8")
+
+            completed = self._run_helper_failure(
+                root, scratch / "digest.txt"
+            )
+
+            self.assertNotEqual(0, completed.returncode)
+            self.assertEqual("preserve me\n", unrelated.read_text(encoding="utf-8"))
+            self.assertFalse((scratch / "digest.txt").exists())
+
+    def test_project_root_is_resolved_before_changing_to_external_scratch(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            repo = temporary / "project"
+            nested = repo / "nested"
+            context = repo / ".codex" / "sessions"
+            rollouts = temporary / "rollouts"
+            scratch = temporary / "external-scratch"
+            nested.mkdir(parents=True)
+            context.mkdir(parents=True)
+            snapshot = context / "snapshot.md"
+            snapshot.write_text("ORDERED_PROJECT_CONTEXT\n", encoding="utf-8")
+            self._write_rollout(rollouts / "rollout.jsonl", "ROLLOUT_MARKER")
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            command = (
+                'PROJECT_ROOT="$(git rev-parse --show-toplevel)"\n'
+                'mkdir -m 700 "$1"\n'
+                'cd "$1"\n'
+                'python3 "$2" --dir "$3" --context-dir '
+                '"$PROJECT_ROOT/.codex/sessions" --out "$1/digest.txt"\n'
+            )
+
+            subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    command,
+                    "test-script",
+                    str(scratch),
+                    str(HELPER_PATH),
+                    str(rollouts),
+                ],
+                cwd=nested,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            digest = (scratch / "digest.txt").read_text(encoding="utf-8")
+            self.assertIn("ORDERED_PROJECT_CONTEXT", digest)
 
 
 if __name__ == "__main__":

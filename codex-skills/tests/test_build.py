@@ -807,12 +807,24 @@ class BuildOverrideTests(unittest.TestCase):
                 self.repo_root, manifest(self.context_entry()), self.output
             )
 
-    def test_override_replaces_only_skill_document_and_preserves_resources(self):
+    def test_override_and_adapter_replace_only_their_owned_files(self):
         source = self.make_source()
         script = source / "scripts" / "new-session.sh"
         script.parent.mkdir()
         script.write_text("#!/bin/sh\necho source\n", encoding="utf-8")
         script.chmod(0o755)
+        reference = source / "REFERENCE.md"
+        reference.write_text("source reference\n", encoding="utf-8")
+        adapter = (
+            self.repo_root
+            / "codex-skills"
+            / "adapters"
+            / "context-keeper"
+            / "new-session.sh"
+        )
+        adapter.parent.mkdir(parents=True)
+        adapter.write_text("#!/bin/sh\necho adapter\n", encoding="utf-8")
+        adapter.chmod(0o755)
         override = self.make_override(body="OVERRIDE BODY")
 
         build_collection(self.repo_root, manifest(self.context_entry()), self.output)
@@ -823,8 +835,11 @@ class BuildOverrideTests(unittest.TestCase):
         ).encode()
         self.assertEqual(expected, (generated / "SKILL.md").read_bytes())
         self.assertIn("OVERRIDE BODY", (generated / "SKILL.md").read_text())
-        self.assertEqual(b"#!/bin/sh\necho source\n", (generated / "scripts/new-session.sh").read_bytes())
+        self.assertEqual(b"#!/bin/sh\necho adapter\n", (generated / "scripts/new-session.sh").read_bytes())
         self.assertTrue((generated / "scripts/new-session.sh").stat().st_mode & stat.S_IXUSR)
+        self.assertEqual(
+            b"source reference\n", (generated / "REFERENCE.md").read_bytes()
+        )
         self.assertEqual(0o644, stat.S_IMODE((generated / "SKILL.md").stat().st_mode))
 
     def test_rejects_override_name_mismatch(self):
@@ -1050,6 +1065,23 @@ class RealOverrideContractTests(unittest.TestCase):
         )
         self.assertIn("additional `--context-dir`", body)
         self.assertNotIn("include context snapshots stored there", body)
+        project_root = body.index('PROJECT_ROOT="$(git rev-parse --show-toplevel)"')
+        scratch = body.index("SCRATCH_DIR=", project_root)
+        change_directory = body.index('cd "$SCRATCH_DIR"', scratch)
+        helper = body.index("scripts/digest_codex.py", change_directory)
+        self.assertLess(project_root, scratch)
+        self.assertLess(scratch, change_directory)
+        self.assertLess(change_directory, helper)
+
+    def test_standup_requires_calendar_and_tasks_with_optional_gmail(self):
+        document = self.documents()["gws-workflow-standup-report"]
+        body = document.body
+        mandatory = (
+            "connected Google Calendar and Google Tasks capabilities or gws CLI"
+        )
+        self.assertIn(f"- **Dependencies:** {mandatory}; Google Workspace credentials", body)
+        self.assertIn("Gmail is optional", body)
+        self.assertNotIn("connected Calendar and Gmail apps or gws CLI", body)
 
     def test_skills_librarian_uses_script_inputs_and_parallel_manifest(self):
         body = self.documents()["skills-librarian"].body
@@ -1112,6 +1144,10 @@ class RealOverrideContractTests(unittest.TestCase):
                 ).encode()
                 self.assertEqual(expected, (output / name / "SKILL.md").read_bytes())
             self.assertTrue((output / "context-keeper/scripts/new-session.sh").is_file())
+            self.assertEqual(
+                (CODEX_SKILLS_ROOT / "adapters/context-keeper/new-session.sh").read_bytes(),
+                (output / "context-keeper/scripts/new-session.sh").read_bytes(),
+            )
             self.assertTrue((output / "skill-miner/scripts/digest.py").is_file())
             self.assertTrue((output / "skill-miner/scripts/digest_codex.py").is_file())
             self.assertTrue((output / "skill-miner/REFERENCE.md").is_file())

@@ -62,6 +62,23 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(7, len(manifest.promoted))
         self.assertEqual(58, len({entry.output for entry in manifest.entries}))
 
+    def test_standup_requires_calendar_and_tasks_but_not_gmail(self):
+        manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
+        standup = next(
+            entry
+            for entry in manifest.sources
+            if entry.output == "gws-workflow-standup-report"
+        )
+
+        self.assertEqual(
+            (
+                "connected Google Calendar and Google Tasks capabilities or gws CLI",
+                "Google Workspace credentials",
+            ),
+            standup.dependencies,
+        )
+        self.assertIn("Gmail is optional", standup.notes)
+
     def test_all_source_folders_are_accounted_for_without_renaming(self):
         manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
         discovered = {path.name for path in discover_source_skills(REPOSITORY_ROOT)}

@@ -229,8 +229,8 @@
       "promoted_from": null,
       "output": "gws-workflow-standup-report",
       "conversion": "dependency-required",
-      "dependencies": ["connected Calendar and Gmail apps or gws CLI", "Google Workspace credentials"],
-      "notes": "Adapts cross-skill and connected-app instructions."
+      "dependencies": ["connected Google Calendar and Google Tasks capabilities or gws CLI", "Google Workspace credentials"],
+      "notes": "Requires Calendar and Tasks for the standup; Gmail is optional context only."
     },
     {
       "source": "gws-workflow-weekly-digest",

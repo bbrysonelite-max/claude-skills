@@ -627,6 +627,7 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             self.assertEqual([], hits)
 
             named_resources = {
+                ("context-keeper", "scripts/new-session.sh"),
                 ("skill-miner", "REFERENCE.md"),
                 ("the-rebuild", "REFERENCE.md"),
                 ("signal-mine", "verticals/ssdi-work-fear.md"),

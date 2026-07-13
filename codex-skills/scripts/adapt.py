@@ -130,7 +130,7 @@ _ADAPTERS = {
     "gws-workflow-standup-report": AdapterSpec(
         "dependency-required",
         (
-            "connected Calendar and Gmail apps or gws CLI",
+            "connected Google Calendar and Google Tasks capabilities or gws CLI",
             "Google Workspace credentials",
         ),
     ),
