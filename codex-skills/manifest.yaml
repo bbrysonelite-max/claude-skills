@@ -1,0 +1,470 @@
+{
+  "sources": [
+    {
+      "source": "agent-reach",
+      "promoted_from": null,
+      "output": "agent-reach",
+      "conversion": "dependency-required",
+      "dependencies": ["agent-reach CLI and platform backends"],
+      "notes": "Adds Codex tool routing and backend availability checks."
+    },
+    {
+      "source": "allsup-leads-ssdi",
+      "promoted_from": null,
+      "output": "allsup-leads-ssdi",
+      "conversion": "dependency-required",
+      "dependencies": ["Datamine environment", "last30days data-source credentials", "here.now publishing credentials"],
+      "notes": "Repoints cross-skill paths and preserves the SSDI safety contract."
+    },
+    {
+      "source": "allsup-leads-veterans",
+      "promoted_from": null,
+      "output": "allsup-leads-veterans",
+      "conversion": "dependency-required",
+      "dependencies": ["Datamine environment", "last30days data-source credentials", "here.now publishing credentials"],
+      "notes": "Repoints cross-skill paths and preserves the veterans safety contract."
+    },
+    {
+      "source": "blind-spots-audit",
+      "promoted_from": null,
+      "output": "blind-spots-audit",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Evidence-first audit semantics work directly in Codex."
+    },
+    {
+      "source": "blueprint",
+      "promoted_from": null,
+      "output": "blueprint",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Research and operator-confirmation workflow works directly in Codex."
+    },
+    {
+      "source": "claude-memory-debug",
+      "promoted_from": null,
+      "output": "claude-memory-debug",
+      "conversion": "dependency-required",
+      "dependencies": ["claude-memory CLI or MCP", "indexed Git repository"],
+      "notes": "Preserves the product name and adds CLI/MCP preflight guidance."
+    },
+    {
+      "source": "claude-memory-index",
+      "promoted_from": null,
+      "output": "claude-memory-index",
+      "conversion": "dependency-required",
+      "dependencies": ["claude-memory CLI or MCP", "Git repository"],
+      "notes": "Adapts Codex MCP configuration while preserving indexing behavior."
+    },
+    {
+      "source": "claude-memory-search",
+      "promoted_from": null,
+      "output": "claude-memory-search",
+      "conversion": "dependency-required",
+      "dependencies": ["claude-memory CLI or MCP", "indexed Git repository"],
+      "notes": "Preserves search operations with explicit CLI/MCP fallback."
+    },
+    {
+      "source": "claude-memory-status",
+      "promoted_from": null,
+      "output": "claude-memory-status",
+      "conversion": "dependency-required",
+      "dependencies": ["claude-memory CLI or MCP", "local claude-memory services"],
+      "notes": "Checks Codex MCP configuration and legacy setup evidence."
+    },
+    {
+      "source": "closing-ritual",
+      "promoted_from": null,
+      "output": "closing-ritual",
+      "conversion": "dependency-required",
+      "dependencies": ["target Git repository", "repository test toolchain"],
+      "notes": "Uses Codex session paths and direct orchestration for project closeout."
+    },
+    {
+      "source": "cloud-run-reauth",
+      "promoted_from": null,
+      "output": "cloud-run-reauth",
+      "conversion": "dependency-required",
+      "dependencies": ["gcloud CLI credentials", "Cloud Run project access"],
+      "notes": "Adds credential and project preflight before the existing script."
+    },
+    {
+      "source": "context-keeper",
+      "promoted_from": null,
+      "output": "context-keeper",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Writes Codex sessions while retaining read-only legacy evidence discovery."
+    },
+    {
+      "source": "desktop-delivery",
+      "promoted_from": null,
+      "output": "desktop-delivery",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Local artifact delivery semantics work directly in Codex."
+    },
+    {
+      "source": "doc-keeper",
+      "promoted_from": null,
+      "output": "doc-keeper",
+      "conversion": "dependency-required",
+      "dependencies": ["target Git repository", "repository documentation checks"],
+      "notes": "Replaces mandatory subagent dispatch with direct Codex execution."
+    },
+    {
+      "source": "failure-modes",
+      "promoted_from": null,
+      "output": "failure-modes",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Failure analysis workflow works directly in Codex."
+    },
+    {
+      "source": "gitnexus-cli",
+      "promoted_from": null,
+      "output": "gitnexus-cli",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Adds GitNexus availability checks and Codex command guidance."
+    },
+    {
+      "source": "gitnexus-debugging",
+      "promoted_from": null,
+      "output": "gitnexus-debugging",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Preserves graph-led debugging with CLI/MCP fallback."
+    },
+    {
+      "source": "gitnexus-exploring",
+      "promoted_from": null,
+      "output": "gitnexus-exploring",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Preserves graph exploration with CLI/MCP fallback."
+    },
+    {
+      "source": "gitnexus-guide",
+      "promoted_from": null,
+      "output": "gitnexus-guide",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Rewrites Claude tool references without renaming GitNexus."
+    },
+    {
+      "source": "gitnexus-impact-analysis",
+      "promoted_from": null,
+      "output": "gitnexus-impact-analysis",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Preserves impact analysis with CLI/MCP fallback."
+    },
+    {
+      "source": "gitnexus-pr-review",
+      "promoted_from": null,
+      "output": "gitnexus-pr-review",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "Git repository and PR diff"],
+      "notes": "Uses Codex file operations around the GitNexus review flow."
+    },
+    {
+      "source": "gitnexus-refactoring",
+      "promoted_from": null,
+      "output": "gitnexus-refactoring",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Preserves graph-led refactoring with CLI/MCP fallback."
+    },
+    {
+      "source": "ground-truth",
+      "promoted_from": null,
+      "output": "ground-truth",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Evidence hierarchy and verification semantics work directly in Codex."
+    },
+    {
+      "source": "gws-shared",
+      "promoted_from": null,
+      "output": "gws-shared",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Google Workspace apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Prefers connected apps and retains gws as an explicit fallback."
+    },
+    {
+      "source": "gws-workflow",
+      "promoted_from": null,
+      "output": "gws-workflow",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Google Workspace apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Routes workflows through connected apps with gws fallback."
+    },
+    {
+      "source": "gws-workflow-email-to-task",
+      "promoted_from": null,
+      "output": "gws-workflow-email-to-task",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Gmail and task apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Adapts cross-skill and connected-app instructions."
+    },
+    {
+      "source": "gws-workflow-file-announce",
+      "promoted_from": null,
+      "output": "gws-workflow-file-announce",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Drive and Chat apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Adapts cross-skill and connected-app instructions."
+    },
+    {
+      "source": "gws-workflow-meeting-prep",
+      "promoted_from": null,
+      "output": "gws-workflow-meeting-prep",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Gmail, Calendar, and Drive apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Adapts cross-skill and connected-app instructions."
+    },
+    {
+      "source": "gws-workflow-standup-report",
+      "promoted_from": null,
+      "output": "gws-workflow-standup-report",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Calendar and Gmail apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Adapts cross-skill and connected-app instructions."
+    },
+    {
+      "source": "gws-workflow-weekly-digest",
+      "promoted_from": null,
+      "output": "gws-workflow-weekly-digest",
+      "conversion": "dependency-required",
+      "dependencies": ["connected Gmail, Calendar, and Drive apps or gws CLI", "Google Workspace credentials"],
+      "notes": "Adapts cross-skill and connected-app instructions."
+    },
+    {
+      "source": "here-now",
+      "promoted_from": null,
+      "output": "here-now",
+      "conversion": "dependency-required",
+      "dependencies": ["here.now service credentials"],
+      "notes": "Adds service authentication preflight around the publishing script."
+    },
+    {
+      "source": "intro-page",
+      "promoted_from": null,
+      "output": "intro-page",
+      "conversion": "dependency-required",
+      "dependencies": ["SSH website host access", "browser automation"],
+      "notes": "Replaces the gstack browser path with installed Codex browser tooling."
+    },
+    {
+      "source": "last30days",
+      "promoted_from": null,
+      "output": "last30days",
+      "conversion": "dependency-required",
+      "dependencies": ["Python 3.12 or newer", "last30days data-source credentials"],
+      "notes": "Uses Codex paths and interaction primitives while preserving source routing."
+    },
+    {
+      "source": "mine",
+      "promoted_from": null,
+      "output": "mine",
+      "conversion": "dependency-required",
+      "dependencies": ["Datamine repository and environment", "last30days data-source credentials"],
+      "notes": "Repoints cross-skill paths and adds Datamine preflight."
+    },
+    {
+      "source": "network-reactivator",
+      "promoted_from": null,
+      "output": "network-reactivator",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Message analysis and drafting semantics work directly in Codex."
+    },
+    {
+      "source": "page-rethink",
+      "promoted_from": null,
+      "output": "page-rethink",
+      "conversion": "dependency-required",
+      "dependencies": ["browser automation", "target website repository"],
+      "notes": "Replaces gstack browser commands with installed Codex browser tooling."
+    },
+    {
+      "source": "production-gate-audit",
+      "promoted_from": null,
+      "output": "production-gate-audit",
+      "conversion": "dependency-required",
+      "dependencies": ["target repository and deployment", "production service credentials"],
+      "notes": "Adds environment preflight while preserving evidence requirements."
+    },
+    {
+      "source": "refine",
+      "promoted_from": null,
+      "output": "refine",
+      "conversion": "dependency-required",
+      "dependencies": ["Sherlock and blue-healer repositories", "OSINT and enrichment credentials"],
+      "notes": "Repoints cross-skill paths and preserves verification safeguards."
+    },
+    {
+      "source": "ship-it",
+      "promoted_from": null,
+      "output": "ship-it",
+      "conversion": "dependency-required",
+      "dependencies": ["tiger-claw-v4-core repository", "deployment credentials"],
+      "notes": "Adds repository and credential preflight around the shipping script."
+    },
+    {
+      "source": "signal-mine",
+      "promoted_from": null,
+      "output": "signal-mine",
+      "conversion": "dependency-required",
+      "dependencies": ["source APIs and credentials", "Python script dependencies"],
+      "notes": "Adapts search tooling and keeps the existing enrichment pipeline."
+    },
+    {
+      "source": "skill-miner",
+      "promoted_from": null,
+      "output": "skill-miner",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Targets the Codex skill library and replaces Claude interaction terms."
+    },
+    {
+      "source": "skills-librarian",
+      "promoted_from": null,
+      "output": "skills-librarian",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Audits Codex skill paths while retaining non-destructive approval rules."
+    },
+    {
+      "source": "the-rebuild",
+      "promoted_from": null,
+      "output": "the-rebuild",
+      "conversion": "native",
+      "dependencies": [],
+      "notes": "Strategic context loads directly without runtime-specific operations."
+    },
+    {
+      "source": "tiger-doc-keeper",
+      "promoted_from": null,
+      "output": "tiger-doc-keeper",
+      "conversion": "dependency-required",
+      "dependencies": ["tiger-claw-v4-core repository", "repository documentation checks"],
+      "notes": "Replaces mandatory subagent dispatch and updates Codex session paths."
+    },
+    {
+      "source": "tiger-leader-hunt",
+      "promoted_from": null,
+      "output": "tiger-leader-hunt",
+      "conversion": "dependency-required",
+      "dependencies": ["last30days skill and data-source credentials"],
+      "notes": "Repoints cross-skill paths and replaces Claude tool declarations."
+    },
+    {
+      "source": "tiger-whitepaper",
+      "promoted_from": null,
+      "output": "tiger-whitepaper",
+      "conversion": "dependency-required",
+      "dependencies": ["Node.js and PDF rendering dependencies"],
+      "notes": "Uses Codex file operations while preserving the branded build contract."
+    },
+    {
+      "source": "tigerclaw-daily-checks",
+      "promoted_from": null,
+      "output": "tigerclaw-daily-checks",
+      "conversion": "dependency-required",
+      "dependencies": ["tiger-claw-v4-core repository", "gcloud and database credentials"],
+      "notes": "Adds explicit access preflight for repository and live probes."
+    },
+    {
+      "source": "truth-keeper",
+      "promoted_from": null,
+      "output": "truth-keeper",
+      "conversion": "dependency-required",
+      "dependencies": ["local Truth directory", "project repositories"],
+      "notes": "Targets Codex skill paths while preserving the two-layer truth boundary."
+    },
+    {
+      "source": "two-brents-brand",
+      "promoted_from": null,
+      "output": "two-brents-brand",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Updates skill-library placement without changing brand doctrine."
+    },
+    {
+      "source": "vault-hygiene",
+      "promoted_from": null,
+      "output": "vault-hygiene",
+      "conversion": "dependency-required",
+      "dependencies": ["local Obsidian vault repository"],
+      "notes": "Uses Codex memory paths while preserving vault audit rules."
+    },
+    {
+      "source": "whitelabel-radar",
+      "promoted_from": null,
+      "output": "whitelabel-radar",
+      "conversion": "dependency-required",
+      "dependencies": ["last30days and tiger-leader-hunt skills", "enrichment and publishing credentials"],
+      "notes": "Repoints cross-skill paths and preserves evidence-only targeting."
+    }
+  ],
+  "promoted": [
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-assumptions-analyzer.md",
+      "output": "assumptions-audit",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Removes GSD orchestration and fixed planning-path assumptions."
+    },
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-pattern-mapper.md",
+      "output": "codebase-pattern-mapping",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Promotes repository pattern discovery into a direct Codex workflow."
+    },
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-doc-verifier.md",
+      "output": "documentation-claim-verification",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Removes GSD coupling while retaining evidence-backed claim checks."
+    },
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-integration-checker.md",
+      "output": "integration-flow-audit",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Converts the parked integration checker to direct Codex execution."
+    },
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-nyquist-auditor.md",
+      "output": "requirements-coverage-audit",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Removes fixed planning files while preserving coverage evidence."
+    },
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-security-auditor.md",
+      "output": "threat-mitigation-audit",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Promotes threat-to-mitigation auditing without GSD orchestration."
+    },
+    {
+      "source": null,
+      "promoted_from": ".agents-backup/gsd-eval-auditor.md",
+      "output": "ai-evaluation-audit",
+      "conversion": "adapted",
+      "dependencies": [],
+      "notes": "Promotes AI evaluation auditing without fixed planning paths."
+    }
+  ]
+}
