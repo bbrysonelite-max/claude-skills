@@ -85,8 +85,8 @@
       "promoted_from": null,
       "output": "cloud-run-reauth",
       "conversion": "dependency-required",
-      "dependencies": ["gcloud CLI credentials", "Cloud Run project access"],
-      "notes": "Adds credential and project preflight before the existing script."
+      "dependencies": ["gcloud CLI", "Google Cloud user and ADC access", "cloud-sql-proxy"],
+      "notes": "Preflights gcloud, both Google Cloud auth modes, and Cloud SQL proxy access."
     },
     {
       "source": "context-keeper",
@@ -245,8 +245,8 @@
       "promoted_from": null,
       "output": "here-now",
       "conversion": "dependency-required",
-      "dependencies": ["here.now service credentials"],
-      "notes": "Adds service authentication preflight around the publishing script."
+      "dependencies": ["bash", "curl", "file", "bundled or system jq", "here.now network access"],
+      "notes": "Preflights every required command and here.now reachability before publishing."
     },
     {
       "source": "intro-page",
@@ -340,9 +340,9 @@
       "source": "the-rebuild",
       "promoted_from": null,
       "output": "the-rebuild",
-      "conversion": "native",
+      "conversion": "adapted",
       "dependencies": [],
-      "notes": "Strategic context loads directly without runtime-specific operations."
+      "notes": "Codex reference tool/path adaptation is required for Claude-specific instructions."
     },
     {
       "source": "tiger-doc-keeper",
@@ -365,8 +365,8 @@
       "promoted_from": null,
       "output": "tiger-whitepaper",
       "conversion": "dependency-required",
-      "dependencies": ["Node.js and PDF rendering dependencies"],
-      "notes": "Uses Codex file operations while preserving the branded build contract."
+      "dependencies": ["Node.js", "Google Chrome"],
+      "notes": "Preflights Node.js and Google Chrome before the branded PDF build."
     },
     {
       "source": "tigerclaw-daily-checks",

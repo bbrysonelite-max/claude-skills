@@ -96,6 +96,25 @@ class ManifestTests(unittest.TestCase):
 
         self.assertEqual(ALLOWED_CONVERSIONS, {entry.conversion for entry in manifest.entries})
 
+    def test_reviewed_entries_record_exact_runtime_requirements(self):
+        manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
+        entries = {entry.output: entry for entry in manifest.entries}
+
+        self.assertEqual("adapted", entries["the-rebuild"].conversion)
+        self.assertIn("reference tool/path adaptation", entries["the-rebuild"].notes)
+        self.assertEqual(
+            ("bash", "curl", "file", "bundled or system jq", "here.now network access"),
+            entries["here-now"].dependencies,
+        )
+        self.assertEqual(
+            ("gcloud CLI", "Google Cloud user and ADC access", "cloud-sql-proxy"),
+            entries["cloud-run-reauth"].dependencies,
+        )
+        self.assertEqual(
+            ("Node.js", "Google Chrome"),
+            entries["tiger-whitepaper"].dependencies,
+        )
+
     def test_manifest_models_are_frozen(self):
         entry = SkillEntry(None, None, "sample", "native", (), "note")
         manifest = Manifest((entry,), ())
