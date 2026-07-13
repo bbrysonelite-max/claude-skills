@@ -96,6 +96,14 @@ class ManifestTests(unittest.TestCase):
 
         self.assertEqual(ALLOWED_CONVERSIONS, {entry.conversion for entry in manifest.entries})
 
+    def test_last30days_records_only_mandatory_dependencies(self):
+        manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
+        entry = next(entry for entry in manifest.sources if entry.output == "last30days")
+
+        self.assertEqual(("Python 3.12 or newer", "public network access"), entry.dependencies)
+        self.assertIn("Credentials are optional", entry.notes)
+        self.assertIn("Node.js 22 or newer", entry.notes)
+
     def test_reviewed_entries_record_exact_runtime_requirements(self):
         manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
         entries = {entry.output: entry for entry in manifest.entries}
@@ -208,15 +216,77 @@ class ManifestTests(unittest.TestCase):
                 repo_root=Path(directory),
             )
 
+    def test_rejects_source_symlink_resolving_outside_repo_root(self):
+        with tempfile.TemporaryDirectory() as repository, tempfile.TemporaryDirectory() as external:
+            repository_root = Path(repository)
+            (repository_root / "sample").symlink_to(Path(external), target_is_directory=True)
+
+            self.assert_invalid(
+                {"sources": [source_entry()], "promoted": []},
+                "source path escapes repo root",
+                repo_root=repository_root,
+            )
+
+    def test_rejects_promoted_symlink_resolving_outside_repo_root(self):
+        with tempfile.TemporaryDirectory() as repository, tempfile.TemporaryDirectory() as external:
+            repository_root = Path(repository)
+            backup = repository_root / ".agents-backup"
+            backup.mkdir()
+            external_file = Path(external) / "source.md"
+            external_file.write_text("outside", encoding="utf-8")
+            (backup / "source.md").symlink_to(external_file)
+
+            self.assert_invalid(
+                {"sources": [], "promoted": [promoted_entry()]},
+                "promoted provenance escapes repo root",
+                repo_root=repository_root,
+            )
+
     def test_dependencies_are_loaded_as_a_tuple(self):
         manifest = self.load_data(
             {
-                "sources": [source_entry(dependencies=["example-cli", "service credentials"])],
+                "sources": [
+                    source_entry(
+                        conversion="dependency-required",
+                        dependencies=["example-cli", "service credentials"],
+                    )
+                ],
                 "promoted": [],
             }
         )
 
         self.assertEqual(("example-cli", "service credentials"), manifest.sources[0].dependencies)
+
+    def test_rejects_conversion_dependency_mismatches(self):
+        invalid_entries = (
+            source_entry(conversion="dependency-required", dependencies=[]),
+            source_entry(conversion="native", dependencies=["unexpected"]),
+            source_entry(conversion="adapted", dependencies=["unexpected"]),
+        )
+
+        for entry in invalid_entries:
+            with self.subTest(conversion=entry["conversion"], dependencies=entry["dependencies"]):
+                self.assert_invalid(
+                    {"sources": [entry], "promoted": []},
+                    "conversion and dependencies are inconsistent",
+                )
+
+    def test_accepts_consistent_conversion_dependencies(self):
+        for conversion, dependencies in (
+            ("native", []),
+            ("adapted", []),
+            ("dependency-required", ["required service"]),
+        ):
+            with self.subTest(conversion=conversion):
+                manifest = self.load_data(
+                    {
+                        "sources": [
+                            source_entry(conversion=conversion, dependencies=dependencies)
+                        ],
+                        "promoted": [],
+                    }
+                )
+                self.assertEqual(conversion, manifest.sources[0].conversion)
 
     def test_rejects_wrong_entry_provenance_for_each_section(self):
         self.assert_invalid(

@@ -88,6 +88,9 @@ def _parse_entry(raw: object, section: str, index: int) -> SkillEntry:
         raise ValueError("dependencies must be a list")
     if not all(isinstance(dependency, str) and dependency.strip() for dependency in dependencies):
         raise ValueError("dependencies must contain non-empty strings")
+    requires_dependencies = conversion == "dependency-required"
+    if requires_dependencies != bool(dependencies):
+        raise ValueError("conversion and dependencies are inconsistent")
     if not isinstance(notes, str) or not notes.strip():
         raise ValueError("notes must be a non-empty string")
 
@@ -124,14 +127,32 @@ def load_manifest(path: Path, repo_root: Path | None = None) -> Manifest:
         raise ValueError("duplicate output name")
 
     if repo_root is not None:
-        repo_root = Path(repo_root)
+        resolved_root = Path(repo_root).resolve(strict=True)
         for entry in sources:
-            if not (repo_root / entry.source).is_dir():
+            candidate = resolved_root / entry.source
+            try:
+                resolved_candidate = candidate.resolve(strict=True)
+            except FileNotFoundError:
                 raise ValueError(f"source path does not exist: {entry.source}")
+            if not resolved_candidate.is_relative_to(resolved_root):
+                raise ValueError(f"source path escapes repo root: {entry.source}")
+            if not resolved_candidate.is_dir():
+                raise ValueError(f"source path is not a directory: {entry.source}")
         for entry in promoted:
-            if not (repo_root / entry.promoted_from).is_file():
+            candidate = resolved_root / entry.promoted_from
+            try:
+                resolved_candidate = candidate.resolve(strict=True)
+            except FileNotFoundError:
                 raise ValueError(
                     f"promoted provenance does not exist: {entry.promoted_from}"
+                )
+            if not resolved_candidate.is_relative_to(resolved_root):
+                raise ValueError(
+                    f"promoted provenance escapes repo root: {entry.promoted_from}"
+                )
+            if not resolved_candidate.is_file():
+                raise ValueError(
+                    f"promoted provenance is not a file: {entry.promoted_from}"
                 )
 
     return Manifest(sources=sources, promoted=promoted)

@@ -261,8 +261,8 @@
       "promoted_from": null,
       "output": "last30days",
       "conversion": "dependency-required",
-      "dependencies": ["Python 3.12 or newer", "last30days data-source credentials"],
-      "notes": "Uses Codex paths and interaction primitives while preserving source routing."
+      "dependencies": ["Python 3.12 or newer", "public network access"],
+      "notes": "Uses Codex paths. Credentials are optional; Node.js 22 or newer supports optional providers."
     },
     {
       "source": "mine",
