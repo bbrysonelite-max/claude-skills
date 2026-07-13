@@ -19,11 +19,33 @@ _SYSTEM_BLOCK = re.compile(
     r"</(?:system-reminder|environment_context|permissions instructions)>",
     re.DOTALL | re.IGNORECASE,
 )
+_CREDENTIAL_NAME = (
+    r"(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH|"
+    r"[A-Z][A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH))"
+)
+_CREDENTIAL_KEY = (
+    rf'(?:"{_CREDENTIAL_NAME}"|\'{_CREDENTIAL_NAME}\'|{_CREDENTIAL_NAME})'
+)
+_BARE_CREDENTIAL_VALUE = r"[^\]}\r\n,;]*?"
+_CREDENTIAL_VALUE_DELIMITER = r"[\]},;\r\n]"
 _SECRET_ASSIGNMENT = re.compile(
-    r"\b((?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH)|"
-    r"(?:[A-Z][A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET|KEY|CREDENTIAL|AUTH)))"
-    r"\s*[:=]\s*([^\s,;]+)",
-    re.IGNORECASE,
+    rf"""
+    (?P<prefix>
+        (?<![A-Z0-9_])
+        {_CREDENTIAL_KEY}
+        \s*[:=]\s*
+    )
+    (?P<value>
+        "(?:\\.|[^"\\])*"
+        | '(?:\\.|[^'\\])*'
+        | {_BARE_CREDENTIAL_VALUE}
+          (?=
+              \s*(?:{_CREDENTIAL_VALUE_DELIMITER}|\Z)
+              | \s+(?={_CREDENTIAL_KEY}\s*[:=])
+          )
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 _TOKEN_VALUE = re.compile(
     r"\b(?:sk|ghp|github_pat|xox[baprs]|ya29)[-_][A-Za-z0-9_-]{8,}\b"
@@ -50,12 +72,21 @@ class SessionRecord:
     messages: tuple[tuple[str, str], ...]
 
 
+def _redact_secret_assignment(match: re.Match[str]) -> str:
+    value = match.group("value")
+    if len(value) >= 2 and value[0] in {"'", '"'} and value[-1] == value[0]:
+        redacted = f"{value[0]}<redacted>{value[0]}"
+    else:
+        redacted = "<redacted>"
+    return match.group("prefix") + redacted
+
+
 def _clean_text(text: str) -> str:
     if text.lstrip().startswith(_NOISE_PREFIXES):
         return ""
     cleaned = _SYSTEM_BLOCK.sub("", text)
     cleaned = _PRIVATE_KEY.sub("<redacted>", cleaned)
-    cleaned = _SECRET_ASSIGNMENT.sub(r"\1=<redacted>", cleaned)
+    cleaned = _SECRET_ASSIGNMENT.sub(_redact_secret_assignment, cleaned)
     cleaned = _TOKEN_VALUE.sub("<redacted>", cleaned)
     cleaned = _SPACE.sub(" ", cleaned).strip()
     if len(cleaned) > 480:

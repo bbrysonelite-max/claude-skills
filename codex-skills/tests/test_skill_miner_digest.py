@@ -463,6 +463,68 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
                 self.assertNotIn(f"BEGIN {key_type} KEY", digest)
                 self.assertNotIn(f"END {key_type} KEY", digest)
 
+    def test_redacts_quoted_and_structured_credentials_without_value_tails(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            root = temporary / "rollouts"
+            credential_text = (
+                'JSON_MARKER {"password": "json correct horse", '
+                '"api_token": "json api token"}\n'
+                "SINGLE_JSON_MARKER {'password': 'single json secret', "
+                "'api_token': 'single api token'}\n"
+                'ASSIGNMENT_MARKER PASSWORD="Correct Horse Battery Staple" '
+                "TOKEN='multi word token secret'\n"
+                "YAML_MARKER\npassword: yaml-unquoted-secret\n"
+                'api_token: "yaml quoted multiword secret"\n'
+                "client_secret: 'yaml single quoted secret'\n"
+                "auth: yaml unquoted multiword secret\n"
+                r'ESCAPED_MARKER PASSWORD="secret with an escaped \"quote\" tail"'
+            )
+            self._write_rollout(root / "credentials.jsonl", credential_text)
+            output = temporary / "scratch" / "digest.txt"
+
+            self._run_helper(root, output)
+
+            digest = output.read_text(encoding="utf-8")
+            for marker in (
+                "JSON_MARKER",
+                "SINGLE_JSON_MARKER",
+                "ASSIGNMENT_MARKER",
+                "YAML_MARKER",
+                "ESCAPED_MARKER",
+            ):
+                self.assertIn(marker, digest)
+            for secret_fragment in (
+                "json correct horse",
+                "json api token",
+                "single json secret",
+                "single api token",
+                "Correct Horse Battery Staple",
+                "multi word token secret",
+                "yaml-unquoted-secret",
+                "yaml quoted multiword secret",
+                "yaml single quoted secret",
+                "yaml unquoted multiword secret",
+                "escaped",
+                "quote",
+                "tail",
+            ):
+                self.assertNotIn(secret_fragment, digest)
+            for redacted_shape in (
+                '"password": "<redacted>"',
+                '"api_token": "<redacted>"',
+                "'password': '<redacted>'",
+                "'api_token': '<redacted>'",
+                'PASSWORD="<redacted>"',
+                "TOKEN='<redacted>'",
+                "password: <redacted>",
+                'api_token: "<redacted>"',
+                "client_secret: '<redacted>'",
+                "auth: <redacted>",
+            ):
+                self.assertIn(redacted_shape, digest)
+            self.assertEqual(2, digest.count('PASSWORD="<redacted>"'))
+
     def test_rejects_output_equal_to_or_inside_input_root(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "rollouts"
