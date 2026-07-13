@@ -33,6 +33,19 @@ def make_external_skill(root: Path, name: str, *, document_name: str | None = No
     return skill
 
 
+def write_child_file(directory_fd: int, name: str, data: bytes) -> None:
+    descriptor = os.open(
+        name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+        dir_fd=directory_fd,
+    )
+    try:
+        os.write(descriptor, data)
+    finally:
+        os.close(descriptor)
+
+
 class InstallTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -403,19 +416,28 @@ class InstallTests(unittest.TestCase):
                     artifact_inode: int | None = None
                     artifact_link_text: str | None = None
 
-                    def create_artifact(path: Path) -> None:
+                    def create_artifact(name: str, directory_fd: int) -> None:
                         nonlocal artifact_path, artifact_inode, artifact_link_text
+                        path = destination / Path(name).name
                         artifact_path = path
                         if artifact_kind == "file":
-                            path.write_bytes(b"preserve collision bytes\n")
+                            write_child_file(
+                                directory_fd,
+                                Path(name).name,
+                                b"preserve collision bytes\n",
+                            )
                         elif artifact_kind == "directory":
-                            path.mkdir()
+                            os.mkdir(Path(name).name, dir_fd=directory_fd)
                             (path / "payload.txt").write_text(
                                 "preserve directory\n", encoding="utf-8"
                             )
                         else:
                             artifact_link_text = str(self.root / "unrelated-target")
-                            real_symlink(artifact_link_text, path)
+                            real_symlink(
+                                artifact_link_text,
+                                Path(name).name,
+                                dir_fd=directory_fd,
+                            )
                         artifact_inode = path.lstat().st_ino
 
                     def collide_symlink(source, target, *args, **kwargs):
@@ -425,7 +447,7 @@ class InstallTests(unittest.TestCase):
                             and location == "stage"
                             and ".stage.codex-install-" in target_path.name
                         ):
-                            create_artifact(target_path)
+                            create_artifact(target, kwargs["dir_fd"])
                         return real_symlink(source, target, *args, **kwargs)
 
                     def collide_link(source, target, *args, **kwargs):
@@ -437,7 +459,7 @@ class InstallTests(unittest.TestCase):
                                 and ".backup.codex-install-" in target_path.name
                             )
                         ):
-                            create_artifact(target_path)
+                            create_artifact(target, kwargs["dst_dir_fd"])
                         return real_link(source, target, *args, **kwargs)
 
                     with (
@@ -470,10 +492,12 @@ class InstallTests(unittest.TestCase):
         def substitute_stage(source, target, *args, **kwargs):
             nonlocal attacker_path, attacker_inode
             real_symlink(source, target, *args, **kwargs)
-            candidate = Path(target)
+            candidate = self.destination / Path(target).name
             if attacker_path is None and ".stage.codex-install-" in candidate.name:
-                candidate.unlink()
-                candidate.write_bytes(b"attacker stage bytes\n")
+                os.unlink(Path(target).name, dir_fd=kwargs["dir_fd"])
+                write_child_file(
+                    kwargs["dir_fd"], Path(target).name, b"attacker stage bytes\n"
+                )
                 attacker_path = candidate
                 attacker_inode = candidate.lstat().st_ino
 
@@ -498,10 +522,14 @@ class InstallTests(unittest.TestCase):
         def substitute_ready(source, target, *args, **kwargs):
             nonlocal attacker_path, attacker_inode
             result = real_link(source, target, *args, **kwargs)
-            candidate = Path(target)
+            candidate = self.destination / Path(target).name
             if attacker_path is None and ".ready.codex-install-" in candidate.name:
-                candidate.unlink()
-                candidate.write_bytes(b"attacker ready bytes\n")
+                os.unlink(Path(target).name, dir_fd=kwargs["dst_dir_fd"])
+                write_child_file(
+                    kwargs["dst_dir_fd"],
+                    Path(target).name,
+                    b"attacker ready bytes\n",
+                )
                 attacker_path = candidate
                 attacker_inode = candidate.lstat().st_ino
             return result
@@ -526,14 +554,18 @@ class InstallTests(unittest.TestCase):
 
         def substitute_source_before_link(source, target, *args, **kwargs):
             nonlocal attacker_stage, attacker_inode
-            source_path = Path(source)
+            source_path = self.destination / Path(source).name
             target_path = Path(target)
             if (
                 attacker_stage is None
                 and ".ready.codex-install-" in target_path.name
             ):
-                source_path.unlink()
-                source_path.write_bytes(b"attacker source-stage bytes\n")
+                os.unlink(Path(source).name, dir_fd=kwargs["src_dir_fd"])
+                write_child_file(
+                    kwargs["src_dir_fd"],
+                    Path(source).name,
+                    b"attacker source-stage bytes\n",
+                )
                 attacker_stage = source_path
                 attacker_inode = source_path.lstat().st_ino
             return real_link(source, target, *args, **kwargs)
@@ -564,9 +596,9 @@ class InstallTests(unittest.TestCase):
         real_exchange = install_module._atomic_exchange
         checkpoints: list[bool] = []
 
-        def observe_exchange(first, second):
+        def observe_exchange(handle, first, second):
             checkpoints.append(os.path.lexists(existing))
-            real_exchange(first, second)
+            real_exchange(handle, first, second)
             checkpoints.append(os.path.lexists(existing))
 
         with patch("scripts.install._atomic_exchange", side_effect=observe_exchange):
@@ -588,13 +620,16 @@ class InstallTests(unittest.TestCase):
         real_exchange = install_module._atomic_exchange
         injected = False
 
-        def replace_before_exchange(first, second):
+        def replace_before_exchange(handle, first, second):
             nonlocal injected
             if not injected:
                 injected = True
-                existing.unlink()
-                existing.write_bytes(b"concurrent personal file\n")
-            real_exchange(first, second)
+                handle.child_unlink(existing)
+                assert handle.fd is not None
+                write_child_file(
+                    handle.fd, existing.name, b"concurrent personal file\n"
+                )
+            real_exchange(handle, first, second)
 
         with patch(
             "scripts.install._atomic_exchange", side_effect=replace_before_exchange
@@ -628,9 +663,9 @@ class InstallTests(unittest.TestCase):
         real_publish = install_module._publish_without_overwrite
         raised = False
 
-        def publish_then_raise(first, second):
+        def publish_then_raise(handle, first, second):
             nonlocal raised
-            real_publish(first, second)
+            real_publish(handle, first, second)
             if not raised:
                 raised = True
                 raise RuntimeError("injected exception after publication")
@@ -653,9 +688,9 @@ class InstallTests(unittest.TestCase):
         real_exchange = install_module._atomic_exchange
         raised = False
 
-        def exchange_then_raise(first, second):
+        def exchange_then_raise(handle, first, second):
             nonlocal raised
-            real_exchange(first, second)
+            real_exchange(handle, first, second)
             if not raised:
                 raised = True
                 raise RuntimeError("injected exception after atomic swap")
@@ -722,14 +757,17 @@ class InstallTests(unittest.TestCase):
         calls = 0
         concurrent_inode: int | None = None
 
-        def fail_exchange_back_and_retries(first, second):
+        def fail_exchange_back_and_retries(handle, first, second):
             nonlocal calls, concurrent_inode
             calls += 1
             if calls == 1:
-                existing.unlink()
-                existing.write_bytes(b"concurrent fallback file\n")
+                handle.child_unlink(existing)
+                assert handle.fd is not None
+                write_child_file(
+                    handle.fd, existing.name, b"concurrent fallback file\n"
+                )
                 concurrent_inode = existing.lstat().st_ino
-                return real_exchange(first, second)
+                return real_exchange(handle, first, second)
             raise OSError("injected unavailable exchange-back")
 
         with (
@@ -782,15 +820,20 @@ class InstallTests(unittest.TestCase):
                 raise OSError("force rollback after managed update")
             return real_prepare(*args, **kwargs)
 
-        def replace_before_rollback_exchange(first, second):
+        def replace_before_rollback_exchange(handle, first, second):
             nonlocal exchange_calls, personal_inode
             exchange_calls += 1
             if exchange_calls == 2:
-                existing.unlink()
-                existing.write_bytes(b"personal replacement during rollback\n")
+                handle.child_unlink(existing)
+                assert handle.fd is not None
+                write_child_file(
+                    handle.fd,
+                    existing.name,
+                    b"personal replacement during rollback\n",
+                )
                 personal_inode = existing.lstat().st_ino
                 raise OSError("destination replaced before rollback exchange")
-            return real_exchange(first, second)
+            return real_exchange(handle, first, second)
 
         with (
             patch(
@@ -844,21 +887,26 @@ class InstallTests(unittest.TestCase):
                     calls = 0
                     concurrent_inode: int | None = None
 
-                    def fail_second_exchange(first, second):
+                    def fail_second_exchange(handle, first, second):
                         nonlocal calls, concurrent_inode
                         calls += 1
                         if calls == 1:
-                            existing.unlink()
-                            existing.write_bytes(b"concurrent personal file\n")
+                            handle.child_unlink(existing)
+                            assert handle.fd is not None
+                            write_child_file(
+                                handle.fd,
+                                existing.name,
+                                b"concurrent personal file\n",
+                            )
                             concurrent_inode = existing.lstat().st_ino
-                            return real_exchange(first, second)
+                            return real_exchange(handle, first, second)
                         if calls == 2:
                             if failure_phase == "after":
-                                real_exchange(first, second)
+                                real_exchange(handle, first, second)
                             raise error_type(
                                 f"injected {failure_phase} exchange-back failure"
                             )
-                        return real_exchange(first, second)
+                        return real_exchange(handle, first, second)
 
                     with patch(
                         "scripts.install._atomic_exchange",
@@ -897,12 +945,12 @@ class InstallTests(unittest.TestCase):
         real_publish = install_module._publish_without_overwrite
         calls = 0
 
-        def fail_once(source, destination):
+        def fail_once(handle, source, destination):
             nonlocal calls
             calls += 1
             if calls == 3:
                 raise OSError("injected atomic failure")
-            return real_publish(source, destination)
+            return real_publish(handle, source, destination)
 
         with patch(
             "scripts.install._publish_without_overwrite", side_effect=fail_once
@@ -926,8 +974,10 @@ class InstallTests(unittest.TestCase):
             target = Path(destination)
             if not injected and ".agent-reach.stage.codex-install-" in target.name:
                 injected = True
-                (target.parent / "agent-reach").write_text(
-                    "appeared concurrently\n", encoding="utf-8"
+                write_child_file(
+                    kwargs["dir_fd"],
+                    "agent-reach",
+                    b"appeared concurrently\n",
                 )
 
         with patch("scripts.install.os.symlink", side_effect=inject_collision):
@@ -1018,12 +1068,12 @@ class InstallTests(unittest.TestCase):
                 destination = self.root / f"interrupt-{error_type.__name__}"
                 calls = 0
 
-                def interrupt_second(first, second):
+                def interrupt_second(handle, first, second):
                     nonlocal calls
                     calls += 1
                     if calls == 2:
                         raise error_type("injected publication interrupt")
-                    return real_publish(first, second)
+                    return real_publish(handle, first, second)
 
                 with (
                     patch(
@@ -1057,6 +1107,167 @@ class InstallTests(unittest.TestCase):
             install(COLLECTION, self.destination)
 
         self.assertFalse(self.destination.exists())
+
+    def test_syscall_succeeded_then_exception_is_enrolled_for_cleanup(self):
+        real_symlink = os.symlink
+        real_link = os.link
+        real_mkdir = os.mkdir
+        scenarios = ("mkdir", "stage", "ready", "backup", "recovery")
+        for scenario in scenarios:
+            for error_type in (KeyboardInterrupt, SystemExit, ValueError):
+                with self.subTest(scenario=scenario, error_type=error_type.__name__):
+                    destination = self.root / f"post-{scenario}-{error_type.__name__}"
+                    raw_targets: dict[str, str] = {}
+                    if scenario in ("backup", "recovery"):
+                        raw_targets = self.make_stale_managed_links(
+                            destination, ("agent-reach",)
+                        )
+                    raised = False
+
+                    def mkdir_then_raise(path, *args, **kwargs):
+                        nonlocal raised
+                        result = real_mkdir(path, *args, **kwargs)
+                        if (
+                            not raised
+                            and scenario == "mkdir"
+                            and Path(path).name == destination.name
+                        ):
+                            raised = True
+                            raise error_type("injected exception after mkdir")
+                        return result
+
+                    def symlink_then_raise(source, target, *args, **kwargs):
+                        nonlocal raised
+                        result = real_symlink(source, target, *args, **kwargs)
+                        if (
+                            not raised
+                            and scenario == "stage"
+                            and ".stage.codex-install-" in Path(target).name
+                        ):
+                            raised = True
+                            raise error_type("injected exception after stage symlink")
+                        return result
+
+                    def hardlink_then_raise(source, target, *args, **kwargs):
+                        nonlocal raised
+                        result = real_link(source, target, *args, **kwargs)
+                        if (
+                            not raised
+                            and f".{scenario}.codex-install-" in Path(target).name
+                        ):
+                            raised = True
+                            raise error_type(
+                                f"injected exception after {scenario} hardlink"
+                            )
+                        return result
+
+                    context = (
+                        self.assertRaises(error_type)
+                        if not issubclass(error_type, Exception)
+                        else redirect_stdout(io.StringIO())
+                    )
+                    with (
+                        patch("scripts.install.os.mkdir", side_effect=mkdir_then_raise),
+                        patch("scripts.install.os.symlink", side_effect=symlink_then_raise),
+                        patch("scripts.install.os.link", side_effect=hardlink_then_raise),
+                        context,
+                    ):
+                        result = install(COLLECTION, destination)
+
+                    self.assertTrue(raised)
+                    if issubclass(error_type, Exception):
+                        self.assertTrue(result.errors)
+                    if raw_targets:
+                        self.assert_only_original_links(destination, raw_targets)
+                    else:
+                        self.assertFalse(destination.exists())
+                    if destination.exists():
+                        self.assertEqual(
+                            [], list(destination.glob(".*.codex-install-*"))
+                        )
+
+    def test_destination_swap_during_publish_does_not_write_or_hide_debris(self):
+        from scripts import install as install_module
+
+        real_publish = install_module._publish_without_overwrite
+        moved = self.root / "moved-destination"
+        swapped = False
+
+        def swap_then_publish(*args, **kwargs):
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                self.destination.rename(moved)
+                self.destination.mkdir()
+                (self.destination / "personal.txt").write_bytes(b"personal\n")
+            return real_publish(*args, **kwargs)
+
+        with patch(
+            "scripts.install._publish_without_overwrite", side_effect=swap_then_publish
+        ):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.errors)
+        self.assertEqual(b"personal\n", (self.destination / "personal.txt").read_bytes())
+        self.assertEqual([], list(moved.glob(".*.codex-install-*")))
+        self.assertEqual(
+            [],
+            [path for path in moved.iterdir() if path.name in result.planned_created],
+        )
+
+    def test_destination_swap_during_cleanup_uses_opened_directory(self):
+        real_unlink = os.unlink
+        moved = self.root / "cleanup-moved-destination"
+        swapped = False
+
+        def swap_then_unlink(path, *args, **kwargs):
+            nonlocal swapped
+            if not swapped and ".ready.codex-install-" in Path(path).name:
+                swapped = True
+                self.destination.rename(moved)
+                self.destination.mkdir()
+                (self.destination / "personal.txt").write_bytes(b"personal cleanup\n")
+            return real_unlink(path, *args, **kwargs)
+
+        with patch("scripts.install.os.unlink", side_effect=swap_then_unlink):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.errors)
+        self.assertEqual(
+            b"personal cleanup\n", (self.destination / "personal.txt").read_bytes()
+        )
+        self.assertEqual([], list(moved.glob(".*.codex-install-*")))
+        self.assertEqual(
+            [],
+            [path for path in moved.iterdir() if path.name in result.planned_created],
+        )
+
+    def test_ancestor_replacement_during_traversal_never_redirects_creation(self):
+        anchor = self.root / "walk-anchor"
+        original_parent = anchor / "parent"
+        original_parent.mkdir(parents=True)
+        moved_anchor = self.root / "walk-anchor-moved"
+        real_open = os.open
+        swapped = False
+
+        def swap_ancestor_before_open(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if not swapped and Path(path).name == "parent" and kwargs.get("dir_fd"):
+                swapped = True
+                anchor.rename(moved_anchor)
+                replacement_parent = anchor / "parent"
+                replacement_parent.mkdir(parents=True)
+                (replacement_parent / "personal.txt").write_bytes(b"replacement\n")
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("scripts.install.os.open", side_effect=swap_ancestor_before_open):
+            result = install(COLLECTION, anchor / "parent" / "skills")
+
+        self.assertTrue(result.errors)
+        replacement = anchor / "parent"
+        self.assertEqual(b"replacement\n", (replacement / "personal.txt").read_bytes())
+        self.assertFalse((replacement / "skills").exists())
+        self.assertFalse((moved_anchor / "parent" / "skills").exists())
 
     def test_installed_validator_observes_all_managed_links(self):
         install(COLLECTION, self.destination)

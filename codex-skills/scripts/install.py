@@ -35,7 +35,6 @@ GENERATED_MARKER = ".codex-skills-generated"
 TEMP_MARKER = ".codex-install-"
 TEMP_ATTEMPTS = 32
 RENAME_EXCHANGE = 0x00000002
-AT_FDCWD = -100
 
 
 @dataclass(frozen=True)
@@ -116,6 +115,167 @@ class _OwnedPath:
     path: Path
     identity: tuple[int, int, int]
     target: str | None = None
+
+
+@dataclass(frozen=True)
+class _CreatedDirectory:
+    parent_fd: int
+    name: str
+    identity: tuple[int, int, int]
+
+
+class _DestinationHandle:
+    def __init__(self, display: Path) -> None:
+        self.display = display
+        self.canonical = self._canonical_path(display)
+        self.fd: int | None = None
+        self.identity: tuple[int, int, int] | None = None
+        self.fds: list[int] = []
+        self.created: list[_CreatedDirectory] = []
+
+    @staticmethod
+    def _canonical_path(path: Path) -> Path:
+        parts = path.parts
+        if sys.platform == "darwin" and len(parts) > 1:
+            aliases = {"tmp": Path("/private/tmp"), "var": Path("/private/var")}
+            alias = aliases.get(parts[1])
+            if alias is not None:
+                return alias.joinpath(*parts[2:])
+        return path
+
+    @staticmethod
+    def _identity(info: os.stat_result) -> tuple[int, int, int]:
+        return info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
+
+    def open(self) -> None:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        current_fd = os.open(self.canonical.anchor, flags)
+        self.fds.append(current_fd)
+        for part in self.canonical.parts[1:]:
+            try:
+                os.stat(part, dir_fd=current_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                self._mkdir_component(current_fd, part)
+            child_fd = os.open(part, flags, dir_fd=current_fd)
+            self.fds.append(child_fd)
+            entry = os.stat(part, dir_fd=current_fd, follow_symlinks=False)
+            opened = os.fstat(child_fd)
+            if (
+                self._identity(entry) != self._identity(opened)
+                or stat.S_IFMT(entry.st_mode) != stat.S_IFDIR
+            ):
+                raise OSError(f"destination component changed while opening: {part}")
+            current_fd = child_fd
+        self.fd = current_fd
+        self.identity = self._identity(os.fstat(current_fd))
+        self.verify_final()
+
+    def _mkdir_component(self, parent_fd: int, name: str) -> None:
+        try:
+            os.mkdir(name, dir_fd=parent_fd)
+        except OSError:
+            raise
+        except BaseException:
+            try:
+                info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            except BaseException:
+                pass
+            else:
+                identity = self._identity(info)
+                if identity[2] == stat.S_IFDIR:
+                    self.created.append(_CreatedDirectory(parent_fd, name, identity))
+            raise
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        identity = self._identity(info)
+        if identity[2] != stat.S_IFDIR:
+            raise OSError(f"created destination component is not a directory: {name}")
+        self.created.append(_CreatedDirectory(parent_fd, name, identity))
+
+    def verify_final(self) -> None:
+        if self.fd is None or self.identity is None:
+            raise OSError("destination handle is not open")
+        opened = self._identity(os.fstat(self.fd))
+        lexical = self._identity(os.stat(self.display, follow_symlinks=False))
+        if opened != self.identity or lexical != self.identity:
+            raise OSError(f"opened destination was replaced: {self.display}")
+
+    def child_identity(self, path: Path) -> tuple[int, int, int]:
+        assert self.fd is not None
+        return self._identity(
+            os.stat(path.name, dir_fd=self.fd, follow_symlinks=False)
+        )
+
+    def child_exists(self, path: Path) -> bool:
+        try:
+            self.child_identity(path)
+        except FileNotFoundError:
+            return False
+        return True
+
+    def child_is_symlink(self, path: Path) -> bool:
+        try:
+            return self.child_identity(path)[2] == stat.S_IFLNK
+        except FileNotFoundError:
+            return False
+
+    def child_readlink(self, path: Path) -> str:
+        assert self.fd is not None
+        return os.readlink(path.name, dir_fd=self.fd)
+
+    def child_unlink(self, path: Path) -> None:
+        assert self.fd is not None
+        os.unlink(path.name, dir_fd=self.fd)
+
+    def child_symlink(self, target: str, path: Path) -> None:
+        assert self.fd is not None
+        os.symlink(target, path.name, dir_fd=self.fd, target_is_directory=True)
+
+    def child_hardlink(self, source: Path, destination: Path) -> None:
+        assert self.fd is not None
+        os.link(
+            source.name,
+            destination.name,
+            src_dir_fd=self.fd,
+            dst_dir_fd=self.fd,
+            follow_symlinks=False,
+        )
+
+    def cleanup_created(self, errors: list[str]) -> BaseException | None:
+        pending: BaseException | None = None
+        for created in reversed(self.created):
+            try:
+                current = os.stat(
+                    created.name,
+                    dir_fd=created.parent_fd,
+                    follow_symlinks=False,
+                )
+                if self._identity(current) != created.identity:
+                    continue
+                os.rmdir(created.name, dir_fd=created.parent_fd)
+            except FileNotFoundError:
+                continue
+            except BaseException as error:
+                if isinstance(error, Exception):
+                    errors.append(
+                        f"destination cleanup failed for {created.name}: {error}"
+                    )
+                elif pending is None:
+                    pending = error
+        return pending
+
+    def close(self, errors: list[str]) -> BaseException | None:
+        pending: BaseException | None = None
+        for descriptor in reversed(self.fds):
+            try:
+                os.close(descriptor)
+            except BaseException as error:
+                if isinstance(error, Exception):
+                    errors.append(f"destination close failed: {error}")
+                elif pending is None:
+                    pending = error
+        self.fds.clear()
+        self.fd = None
+        return pending
 
 
 @dataclass(frozen=True)
@@ -330,87 +490,53 @@ def _plan_install(
     )
 
 
-def _create_destination(destination: Path, created: list[Path]) -> None:
-    missing: list[Path] = []
-    current = destination
-    while not _lexists(current):
-        missing.append(current)
-        if current.parent == current:
-            break
-        current = current.parent
-    if current.is_symlink() or not current.is_dir():
-        raise OSError(f"destination parent is unsafe: {current}")
-
-    for path in reversed(missing):
-        path.mkdir()
-        created.append(path)
-        if path.is_symlink() or not path.is_dir():
-            raise OSError(f"destination directory became unsafe: {path}")
-
-
 def _temporary_path(destination: Path, name: str, kind: str) -> Path:
     return destination / f".{name}.{kind}{TEMP_MARKER}{uuid.uuid4().hex}"
 
 
-def _path_identity(path: Path) -> tuple[int, int, int]:
-    info = path.lstat()
-    return info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
-
-
-def _open_destination(destination: Path) -> tuple[int, tuple[int, int, int]]:
-    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(destination, flags)
-    info = os.fstat(descriptor)
-    identity = info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
-    if identity[2] != stat.S_IFDIR or _path_identity(destination) != identity:
-        os.close(descriptor)
-        raise OSError(f"destination changed while opening: {destination}")
-    return descriptor, identity
-
-
-def _verify_open_destination(
-    destination: Path,
-    descriptor: int,
-    identity: tuple[int, int, int],
-) -> None:
-    info = os.fstat(descriptor)
-    opened_identity = info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
-    if (
-        opened_identity != identity
-        or destination.is_symlink()
-        or _path_identity(destination) != identity
-    ):
-        raise OSError(f"opened destination was replaced: {destination}")
-
-
 def _create_symlink_exclusive(
     source: Path,
-    destination: Path,
+    handle: _DestinationHandle,
     name: str,
     kind: str,
     owned_paths: list[_OwnedPath],
 ) -> Path:
     return _create_raw_symlink_exclusive(
-        str(source.resolve(strict=True)), destination, name, kind, owned_paths
+        str(source.resolve(strict=True)), handle, name, kind, owned_paths
     )
 
 
 def _create_raw_symlink_exclusive(
     target: str,
-    destination: Path,
+    handle: _DestinationHandle,
     name: str,
     kind: str,
     owned_paths: list[_OwnedPath],
 ) -> Path:
     for _ in range(TEMP_ATTEMPTS):
-        candidate = _temporary_path(destination, name, kind)
+        candidate = _temporary_path(handle.display, name, kind)
+        if handle.child_exists(candidate):
+            continue
         try:
-            os.symlink(target, candidate, target_is_directory=True)
+            handle.child_symlink(target, candidate)
         except FileExistsError:
             continue
-        if not candidate.is_symlink() or os.readlink(candidate) != target:
+        except OSError:
+            raise
+        except BaseException:
+            try:
+                if _matches_symlink(handle, candidate, target=target):
+                    owned_paths.append(
+                        _OwnedPath(candidate, handle.child_identity(candidate), target)
+                    )
+            except BaseException:
+                pass
+            raise
+        if not _matches_symlink(handle, candidate, target=target):
             raise OSError(f"exclusive {kind} link was substituted: {candidate}")
-        owned_paths.append(_OwnedPath(candidate, _path_identity(candidate), target))
+        owned_paths.append(
+            _OwnedPath(candidate, handle.child_identity(candidate), target)
+        )
         return candidate
     raise FileExistsError(
         errno.EEXIST,
@@ -420,7 +546,7 @@ def _create_raw_symlink_exclusive(
 
 def _create_hardlink_exclusive(
     source: Path,
-    destination: Path,
+    handle: _DestinationHandle,
     name: str,
     kind: str,
     owned_paths: list[_OwnedPath],
@@ -429,12 +555,32 @@ def _create_hardlink_exclusive(
     expected_target: str | None,
 ) -> Path:
     for _ in range(TEMP_ATTEMPTS):
-        candidate = _temporary_path(destination, name, kind)
+        candidate = _temporary_path(handle.display, name, kind)
+        if handle.child_exists(candidate):
+            continue
         try:
-            os.link(source, candidate, follow_symlinks=False)
+            handle.child_hardlink(source, candidate)
         except FileExistsError:
             continue
-        candidate_identity = _path_identity(candidate)
+        except OSError:
+            raise
+        except BaseException:
+            try:
+                if (
+                    handle.child_exists(candidate)
+                    and handle.child_identity(candidate) == expected_identity
+                    and (
+                        expected_target is None
+                        or _matches_symlink(handle, candidate, target=expected_target)
+                    )
+                ):
+                    owned_paths.append(
+                        _OwnedPath(candidate, expected_identity, expected_target)
+                    )
+            except BaseException:
+                pass
+            raise
+        candidate_identity = handle.child_identity(candidate)
         if candidate_identity == expected_identity:
             owned_paths.append(
                 _OwnedPath(
@@ -444,13 +590,17 @@ def _create_hardlink_exclusive(
                 )
             )
         else:
-            source_identity = _path_identity(source)
+            source_identity = handle.child_identity(source)
             if candidate_identity == source_identity:
                 owned_paths.append(_OwnedPath(candidate, candidate_identity))
             raise OSError(f"exclusive {kind} hard link has unexpected identity")
         if expected_target is not None and (
-            not candidate.is_symlink()
-            or os.readlink(candidate) != expected_target
+            not _matches_symlink(
+                handle,
+                candidate,
+                identity=candidate_identity,
+                target=expected_target,
+            )
         ):
             raise OSError(f"exclusive {kind} hard link has unexpected target")
         return candidate
@@ -462,20 +612,22 @@ def _create_hardlink_exclusive(
 
 def _prepare_ready_link(
     source: Path,
-    destination: Path,
+    handle: _DestinationHandle,
     name: str,
     owned_paths: list[_OwnedPath],
 ) -> Path:
     expected_target = str(source.resolve(strict=True))
     stage = _create_symlink_exclusive(
-        source, destination, name, "stage", owned_paths
+        source, handle, name, "stage", owned_paths
     )
-    stage_identity = _path_identity(stage)
-    if not stage.is_symlink() or os.readlink(stage) != expected_target:
+    stage_identity = handle.child_identity(stage)
+    if not _matches_symlink(
+        handle, stage, identity=stage_identity, target=expected_target
+    ):
         raise OSError(f"stage link was substituted before hard-linking: {stage}")
     ready = _create_hardlink_exclusive(
         stage,
-        destination,
+        handle,
         name,
         "ready",
         owned_paths,
@@ -483,39 +635,56 @@ def _prepare_ready_link(
         expected_target=expected_target,
     )
     if (
-        _path_identity(stage) != stage_identity
-        or not stage.is_symlink()
-        or os.readlink(stage) != expected_target
-        or _path_identity(ready) != stage_identity
-        or not ready.is_symlink()
-        or os.readlink(ready) != expected_target
+        not _matches_symlink(
+            handle, stage, identity=stage_identity, target=expected_target
+        )
+        or not _matches_symlink(
+            handle, ready, identity=stage_identity, target=expected_target
+        )
     ):
         raise OSError(f"stage or ready link was substituted for {name}")
-    _cleanup_owned_path(_owned_record(owned_paths, stage))
+    _cleanup_owned_path(handle, _owned_record(owned_paths, stage))
     return ready
 
 
 def _atomic_exchange_capability_error() -> str | None:
     libc = ctypes.CDLL(None, use_errno=True)
     if sys.platform == "darwin":
-        return None if hasattr(libc, "renamex_np") else "renamex_np is unavailable"
+        return None if hasattr(libc, "renameatx_np") else "renameatx_np is unavailable"
     if sys.platform.startswith("linux"):
         return None if hasattr(libc, "renameat2") else "renameat2 is unavailable"
     return f"atomic symlink exchange is unsupported on {sys.platform}"
 
 
-def _atomic_exchange(first: Path, second: Path) -> None:
+def _atomic_exchange(
+    handle: _DestinationHandle,
+    first: Path,
+    second: Path,
+) -> None:
     capability_error = _atomic_exchange_capability_error()
     if capability_error:
         raise OSError(errno.ENOTSUP, capability_error)
     libc = ctypes.CDLL(None, use_errno=True)
-    first_bytes = os.fsencode(first)
-    second_bytes = os.fsencode(second)
+    assert handle.fd is not None
+    first_bytes = os.fsencode(first.name)
+    second_bytes = os.fsencode(second.name)
     if sys.platform == "darwin":
-        exchange = libc.renamex_np
-        exchange.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        exchange = libc.renameatx_np
+        exchange.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
         exchange.restype = ctypes.c_int
-        result = exchange(first_bytes, second_bytes, RENAME_EXCHANGE)
+        result = exchange(
+            handle.fd,
+            first_bytes,
+            handle.fd,
+            second_bytes,
+            RENAME_EXCHANGE,
+        )
     else:
         exchange = libc.renameat2
         exchange.argtypes = (
@@ -527,9 +696,9 @@ def _atomic_exchange(first: Path, second: Path) -> None:
         )
         exchange.restype = ctypes.c_int
         result = exchange(
-            AT_FDCWD,
+            handle.fd,
             first_bytes,
-            AT_FDCWD,
+            handle.fd,
             second_bytes,
             RENAME_EXCHANGE,
         )
@@ -542,21 +711,26 @@ def _atomic_exchange(first: Path, second: Path) -> None:
         )
 
 
-def _publish_without_overwrite(ready: Path, destination: Path) -> None:
-    os.link(ready, destination, follow_symlinks=False)
+def _publish_without_overwrite(
+    handle: _DestinationHandle,
+    ready: Path,
+    destination: Path,
+) -> None:
+    handle.child_hardlink(ready, destination)
 
 
-def _cleanup_owned_path(owned: _OwnedPath) -> None:
-    if not _lexists(owned.path):
+def _cleanup_owned_path(handle: _DestinationHandle, owned: _OwnedPath) -> None:
+    if not handle.child_exists(owned.path):
         return
-    if _path_identity(owned.path) != owned.identity:
+    if handle.child_identity(owned.path) != owned.identity:
         raise OSError(f"refusing to clean substituted temporary path: {owned.path}")
     if owned.target is not None and (
-        not owned.path.is_symlink()
-        or os.readlink(owned.path) != owned.target
+        not _matches_symlink(
+            handle, owned.path, identity=owned.identity, target=owned.target
+        )
     ):
         raise OSError(f"refusing to clean retargeted temporary path: {owned.path}")
-    owned.path.unlink()
+    handle.child_unlink(owned.path)
 
 
 def _owned_record(owned_paths: list[_OwnedPath], path: Path) -> _OwnedPath:
@@ -566,33 +740,39 @@ def _owned_record(owned_paths: list[_OwnedPath], path: Path) -> _OwnedPath:
     raise OSError(f"temporary path has no ownership record: {path}")
 
 
-def _retag_owned_path(owned_paths: list[_OwnedPath], path: Path) -> None:
+def _retag_owned_path(
+    handle: _DestinationHandle,
+    owned_paths: list[_OwnedPath],
+    path: Path,
+) -> None:
     for index in range(len(owned_paths) - 1, -1, -1):
         if owned_paths[index].path != path:
             continue
-        identity = _path_identity(path)
-        target = os.readlink(path) if path.is_symlink() else None
+        identity = handle.child_identity(path)
+        target = handle.child_readlink(path) if handle.child_is_symlink(path) else None
         owned_paths[index] = _OwnedPath(path, identity, target)
         return
     raise OSError(f"temporary path has no ownership record: {path}")
 
 
 def _matches_symlink(
+    handle: _DestinationHandle,
     path: Path,
-    identity: tuple[int, int, int],
     target: str,
+    identity: tuple[int, int, int] | None = None,
 ) -> bool:
     try:
         return (
-            path.is_symlink()
-            and _path_identity(path) == identity
-            and os.readlink(path) == target
+            handle.child_is_symlink(path)
+            and (identity is None or handle.child_identity(path) == identity)
+            and handle.child_readlink(path) == target
         )
     except OSError:
         return False
 
 
 def _cleanup_owned_paths(
+    handle: _DestinationHandle,
     owned_paths: list[_OwnedPath],
     retained: set[tuple[Path, tuple[int, int, int]]],
     errors: list[str],
@@ -606,7 +786,7 @@ def _cleanup_owned_paths(
             if (owned.path, owned.identity) in retained:
                 continue
             try:
-                _cleanup_owned_path(owned)
+                _cleanup_owned_path(handle, owned)
             except BaseException as cleanup_error:
                 if isinstance(cleanup_error, Exception):
                     if owned.path not in reported:
@@ -619,8 +799,8 @@ def _cleanup_owned_paths(
                     pending = cleanup_error
                 try:
                     if (
-                        _lexists(owned.path)
-                        and _path_identity(owned.path) == owned.identity
+                        handle.child_exists(owned.path)
+                        and handle.child_identity(owned.path) == owned.identity
                     ):
                         retry.append(owned)
                 except BaseException as inspection_error:
@@ -638,6 +818,7 @@ def _cleanup_owned_paths(
 
 
 def _exchange_restore(
+    handle: _DestinationHandle,
     item: _AppliedLink,
     material: Path,
     material_identity: tuple[int, int, int],
@@ -645,15 +826,15 @@ def _exchange_restore(
     last_error: Exception | None = None
     for _ in range(2):
         try:
-            _atomic_exchange(item.path, material)
+            _atomic_exchange(handle, item.path, material)
         except Exception as error:
             last_error = error
-            if _path_identity(item.path) == material_identity:
+            if handle.child_identity(item.path) == material_identity:
                 return
             if (
-                not item.path.is_symlink()
-                or _path_identity(item.path) != item.new_identity
-                or _path_identity(material) != material_identity
+                not handle.child_is_symlink(item.path)
+                or handle.child_identity(item.path) != item.new_identity
+                or handle.child_identity(material) != material_identity
             ):
                 raise _ManualRecoveryError(
                     f"manual recovery required for {item.name}: destination or "
@@ -662,7 +843,7 @@ def _exchange_restore(
                     material_identity,
                 ) from error
             continue
-        if _path_identity(item.path) == material_identity:
+        if handle.child_identity(item.path) == material_identity:
             return
         raise OSError(f"atomic rollback verification failed for {item.name}")
 
@@ -675,6 +856,7 @@ def _exchange_restore(
 
 
 def _rollback_links(
+    handle: _DestinationHandle,
     applied: list[_AppliedLink],
     errors: list[str],
     owned_paths: list[_OwnedPath],
@@ -687,28 +869,30 @@ def _rollback_links(
         try:
             if item.operation == "created":
                 if (
-                    not item.path.is_symlink()
-                    or _path_identity(item.path) != item.new_identity
+                    not handle.child_is_symlink(item.path)
+                    or handle.child_identity(item.path) != item.new_identity
                 ):
                     raise OSError(f"created path is not a symlink: {item.path}")
-                item.path.unlink()
+                handle.child_unlink(item.path)
                 continue
 
-            current_identity = _path_identity(item.path)
+            current_identity = handle.child_identity(item.path)
             if (
                 item.displaced_identity is not None
                 and current_identity == item.displaced_identity
             ):
                 continue
-            if current_identity != item.new_identity or not item.path.is_symlink():
+            if current_identity != item.new_identity or not handle.child_is_symlink(
+                item.path
+            ):
                 raise OSError(f"installed path changed before rollback: {item.path}")
 
             expected_target: str | None = None
             if (
                 item.displaced is not None
                 and item.displaced_identity is not None
-                and _lexists(item.displaced)
-                and _path_identity(item.displaced) == item.displaced_identity
+                and handle.child_exists(item.displaced)
+                and handle.child_identity(item.displaced) == item.displaced_identity
             ):
                 material = item.displaced
                 material_identity = item.displaced_identity
@@ -716,13 +900,13 @@ def _rollback_links(
                     expected_target = item.old_target
             else:
                 for candidate in (item.recovery, item.backup):
-                    if candidate is None or not _lexists(candidate):
+                    if candidate is None or not handle.child_exists(candidate):
                         continue
                     if (
                         item.old_identity is not None
-                        and candidate.is_symlink()
-                        and _path_identity(candidate) == item.old_identity
-                        and os.readlink(candidate) == item.old_target
+                        and handle.child_is_symlink(candidate)
+                        and handle.child_identity(candidate) == item.old_identity
+                        and handle.child_readlink(candidate) == item.old_target
                     ):
                         material = candidate
                         material_identity = item.old_identity
@@ -733,25 +917,25 @@ def _rollback_links(
                     raise OSError(f"rollback target is missing for {item.name}")
                 material = _create_raw_symlink_exclusive(
                     item.old_target,
-                    item.path.parent,
+                    handle,
                     item.name,
                     "rollback",
                     owned_paths,
                 )
-                material_identity = _path_identity(material)
+                material_identity = handle.child_identity(material)
                 expected_target = item.old_target
 
             assert material_identity is not None
-            _exchange_restore(item, material, material_identity)
+            _exchange_restore(handle, item, material, material_identity)
             try:
                 _owned_record(owned_paths, material)
             except OSError:
                 pass
             else:
-                _retag_owned_path(owned_paths, material)
+                _retag_owned_path(handle, owned_paths, material)
             if expected_target is not None and (
-                not item.path.is_symlink()
-                or os.readlink(item.path) != expected_target
+                not handle.child_is_symlink(item.path)
+                or handle.child_readlink(item.path) != expected_target
             ):
                 raise OSError(f"rollback target verification failed for {item.name}")
         except _ManualRecoveryError as rollback_error:
@@ -770,63 +954,64 @@ def _rollback_links(
 
 
 def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOutcome:
-    created_directories: list[Path] = []
+    handle = _DestinationHandle(destination)
     owned_paths: list[_OwnedPath] = []
     applied: list[_AppliedLink] = []
     previous = dict(plan.previous_links)
     errors: list[str] = []
     retained: set[tuple[Path, tuple[int, int, int]]] = set()
     pending: BaseException | None = None
-    destination_descriptor: int | None = None
-    destination_identity: tuple[int, int, int] | None = None
     committed = False
     try:
-        _create_destination(destination, created_directories)
-        if destination.is_symlink() or not destination.is_dir():
-            raise OSError(f"destination became unsafe: {destination}")
-        destination_descriptor, destination_identity = _open_destination(destination)
+        handle.open()
         for name in sorted((*plan.created, *plan.updated)):
-            _verify_open_destination(
-                destination, destination_descriptor, destination_identity
-            )
+            handle.verify_final()
             path = destination / name
             operation = "created" if name in plan.created else "updated"
             old_target = previous.get(name)
             expected_target = str((source.root / name).resolve(strict=True))
             if operation == "created":
-                if _lexists(path):
+                if handle.child_exists(path):
                     raise OSError(f"destination changed during install: {path}")
                 ready = _prepare_ready_link(
-                    source.root / name, destination, name, owned_paths
+                    source.root / name, handle, name, owned_paths
                 )
-                new_identity = _path_identity(ready)
-                if not _matches_symlink(ready, new_identity, expected_target):
+                new_identity = handle.child_identity(ready)
+                if not _matches_symlink(
+                    handle, ready, target=expected_target, identity=new_identity
+                ):
                     raise OSError(f"ready link was substituted before publish: {ready}")
-                _verify_open_destination(
-                    destination, destination_descriptor, destination_identity
-                )
+                handle.verify_final()
                 try:
-                    _publish_without_overwrite(ready, path)
+                    _publish_without_overwrite(handle, ready, path)
                 except BaseException:
-                    if _matches_symlink(path, new_identity, expected_target):
+                    if _matches_symlink(
+                        handle, path, target=expected_target, identity=new_identity
+                    ):
                         applied.append(
                             _AppliedLink(name, operation, path, new_identity)
                         )
                     raise
-                if not _matches_symlink(path, new_identity, expected_target):
+                if not _matches_symlink(
+                    handle, path, target=expected_target, identity=new_identity
+                ):
                     raise OSError(f"published link was substituted: {path}")
                 applied.append(
                     _AppliedLink(name, operation, path, new_identity)
                 )
-                _cleanup_owned_path(_owned_record(owned_paths, ready))
+                handle.verify_final()
+                _cleanup_owned_path(handle, _owned_record(owned_paths, ready))
                 continue
 
-            if not path.is_symlink() or os.readlink(path) != old_target:
+            if (
+                not handle.child_is_symlink(path)
+                or handle.child_readlink(path) != old_target
+            ):
                 raise OSError(f"managed link changed during install: {path}")
-            old_identity = _path_identity(path)
+            old_identity = handle.child_identity(path)
             backup = _create_hardlink_exclusive(
                 path,
-                destination,
+                handle,
                 name,
                 "backup",
                 owned_paths,
@@ -834,17 +1019,19 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                 expected_target=old_target,
             )
             if (
-                _path_identity(path) != old_identity
-                or not path.is_symlink()
-                or os.readlink(path) != old_target
-                or _path_identity(backup) != old_identity
+                handle.child_identity(path) != old_identity
+                or not handle.child_is_symlink(path)
+                or handle.child_readlink(path) != old_target
+                or handle.child_identity(backup) != old_identity
             ):
                 raise OSError(f"managed link changed while backing up: {path}")
             ready = _prepare_ready_link(
-                source.root / name, destination, name, owned_paths
+                source.root / name, handle, name, owned_paths
             )
-            new_identity = _path_identity(ready)
-            if not _matches_symlink(ready, new_identity, expected_target):
+            new_identity = handle.child_identity(ready)
+            if not _matches_symlink(
+                handle, ready, target=expected_target, identity=new_identity
+            ):
                 raise OSError(f"ready link was substituted before exchange: {ready}")
             item = _AppliedLink(
                 name,
@@ -855,18 +1042,18 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
                 old_identity=old_identity,
                 backup=backup,
             )
-            _verify_open_destination(
-                destination, destination_descriptor, destination_identity
-            )
+            handle.verify_final()
             exchange_error: BaseException | None = None
             try:
-                _atomic_exchange(path, ready)
+                _atomic_exchange(handle, path, ready)
             except BaseException as error:
                 exchange_error = error
-            if _matches_symlink(path, new_identity, expected_target):
+            if _matches_symlink(
+                handle, path, target=expected_target, identity=new_identity
+            ):
                 item.displaced = ready
-                item.displaced_identity = _path_identity(ready)
-                _retag_owned_path(owned_paths, ready)
+                item.displaced_identity = handle.child_identity(ready)
+                _retag_owned_path(handle, owned_paths, ready)
                 applied.append(item)
             elif exchange_error is not None:
                 raise exchange_error
@@ -875,28 +1062,31 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
             if exchange_error is not None:
                 raise exchange_error
             if (
-                _path_identity(ready) != old_identity
-                or not ready.is_symlink()
-                or os.readlink(ready) != old_target
+                handle.child_identity(ready) != old_identity
+                or not handle.child_is_symlink(ready)
+                or handle.child_readlink(ready) != old_target
             ):
                 exchange_back_error: BaseException | None = None
                 try:
-                    _atomic_exchange(path, ready)
+                    _atomic_exchange(handle, path, ready)
                 except BaseException as error:
                     exchange_back_error = error
-                if _matches_symlink(ready, new_identity, expected_target):
-                    _retag_owned_path(owned_paths, ready)
+                if _matches_symlink(
+                    handle, ready, target=expected_target, identity=new_identity
+                ):
+                    _retag_owned_path(handle, owned_paths, ready)
                 if exchange_back_error is not None:
                     raise exchange_back_error
                 raise OSError(f"managed link changed during atomic exchange: {path}")
-            _cleanup_owned_path(_owned_record(owned_paths, ready))
+            handle.verify_final()
+            _cleanup_owned_path(handle, _owned_record(owned_paths, ready))
 
         updates = [item for item in applied if item.operation == "updated"]
         for item in updates:
             assert item.backup is not None
             item.recovery = _create_hardlink_exclusive(
                 item.backup,
-                destination,
+                handle,
                 item.name,
                 "recovery",
                 owned_paths,
@@ -905,10 +1095,11 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
             )
         for item in updates:
             assert item.backup is not None
-            _cleanup_owned_path(_owned_record(owned_paths, item.backup))
+            _cleanup_owned_path(handle, _owned_record(owned_paths, item.backup))
         for item in updates:
             assert item.recovery is not None
-            _cleanup_owned_path(_owned_record(owned_paths, item.recovery))
+            _cleanup_owned_path(handle, _owned_record(owned_paths, item.recovery))
+        handle.verify_final()
         committed = True
     except BaseException as error:
         if isinstance(error, Exception):
@@ -916,6 +1107,7 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
         else:
             pending = error
         rollback_pending = _rollback_links(
+            handle,
             applied,
             errors,
             owned_paths,
@@ -924,31 +1116,19 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOut
         if pending is None:
             pending = rollback_pending
     finally:
-        if not committed:
+        if not committed and handle.fd is not None:
             cleanup_pending = _cleanup_owned_paths(
-                owned_paths, retained, errors
+                handle, owned_paths, retained, errors
             )
             if pending is None:
                 pending = cleanup_pending
-            for directory in reversed(created_directories):
-                try:
-                    directory.rmdir()
-                except BaseException as cleanup_error:
-                    if isinstance(cleanup_error, Exception):
-                        errors.append(
-                            f"destination cleanup failed for {directory}: "
-                            f"{cleanup_error}"
-                        )
-                    elif pending is None:
-                        pending = cleanup_error
-        if destination_descriptor is not None:
-            try:
-                os.close(destination_descriptor)
-            except BaseException as close_error:
-                if isinstance(close_error, Exception):
-                    errors.append(f"destination close failed: {close_error}")
-                elif pending is None:
-                    pending = close_error
+        if not committed:
+            directory_pending = handle.cleanup_created(errors)
+            if pending is None:
+                pending = directory_pending
+        close_pending = handle.close(errors)
+        if pending is None:
+            pending = close_pending
     if pending is not None:
         raise pending
     return _MutationOutcome(tuple(errors), ())
