@@ -157,21 +157,19 @@ def _read_context_snapshot(root: Path, path: Path) -> SessionRecord | None:
 
 
 def collect_sessions(root: Path, limit: int = 0) -> list[SessionRecord]:
-    rollouts = sorted(
-        root.rglob("*.jsonl"),
-        key=lambda path: (
-            -path.stat().st_mtime_ns,
-            path.relative_to(root).as_posix(),
-        ),
-    )
+    candidates: list[tuple[int, str, Path]] = []
+    for path in (*root.rglob("*.jsonl"), *root.rglob("*.md")):
+        try:
+            mtime = path.stat().st_mtime_ns
+        except OSError:
+            continue
+        candidates.append((mtime, path.relative_to(root).as_posix(), path))
+    candidates.sort(key=lambda candidate: (-candidate[0], candidate[1]))
     if limit > 0:
-        rollouts = rollouts[:limit]
-    paths = sorted(
-        (*rollouts, *root.rglob("*.md")),
-        key=lambda path: path.relative_to(root).as_posix(),
-    )
+        candidates = candidates[:limit]
+    candidates.sort(key=lambda candidate: (candidate[0], candidate[1]))
     sessions: list[SessionRecord] = []
-    for path in paths:
+    for _, _, path in candidates:
         record = (
             _read_rollout(root, path)
             if path.suffix == ".jsonl"

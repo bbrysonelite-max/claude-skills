@@ -196,6 +196,51 @@ class SkillMinerCodexDigestTests(unittest.TestCase):
             self.assertIn("FIRST_PATH_MARKER", digest)
             self.assertNotIn("SECOND_PATH_MARKER", digest)
 
+    def test_limit_applies_to_rollouts_and_context_snapshots_together(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "sessions"
+            rollout = root / "rollout.jsonl"
+            older_snapshot = root / "context-keeper" / "older.md"
+            newer_snapshot = root / "context-keeper" / "newer.md"
+            self._write_rollout(rollout, "ROLLOUT_MARKER")
+            older_snapshot.parent.mkdir(parents=True)
+            older_snapshot.write_text("OLDER_SNAPSHOT_MARKER\n", encoding="utf-8")
+            newer_snapshot.write_text("NEWEST_SNAPSHOT_MARKER\n", encoding="utf-8")
+            for path, timestamp in (
+                (rollout, 1_000_000_000),
+                (older_snapshot, 2_000_000_000),
+                (newer_snapshot, 3_000_000_000),
+            ):
+                os.utime(path, ns=(timestamp, timestamp))
+            output = Path(temporary_directory) / "digest.txt"
+
+            completed = self._run_helper(root, output, "--limit", "1")
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertIn("sessions: 1", completed.stdout)
+            self.assertIn("NEWEST_SNAPSHOT_MARKER", digest)
+            self.assertNotIn("OLDER_SNAPSHOT_MARKER", digest)
+            self.assertNotIn("ROLLOUT_MARKER", digest)
+
+    def test_selected_sessions_render_oldest_first_by_mtime(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "sessions"
+            newer = root / "a-new.jsonl"
+            older = root / "z-old.jsonl"
+            self._write_rollout(newer, "NEWER_RENDER_MARKER")
+            self._write_rollout(older, "OLDER_RENDER_MARKER")
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+            output = Path(temporary_directory) / "digest.txt"
+
+            self._run_helper(root, output, "--limit", "2")
+
+            digest = output.read_text(encoding="utf-8")
+            self.assertLess(
+                digest.index("OLDER_RENDER_MARKER"),
+                digest.index("NEWER_RENDER_MARKER"),
+            )
+
     def test_rerun_removes_only_stale_owned_batch_files(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "sessions"
