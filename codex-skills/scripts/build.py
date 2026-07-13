@@ -13,7 +13,6 @@ from pathlib import Path
 
 try:
     from scripts.adapt import (
-        ADAPTER_REGISTRY,
         adapt_description,
         adapt_text,
         is_adapted_resource,
@@ -29,7 +28,6 @@ try:
     )
 except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
     from adapt import (  # type: ignore[no-redef]
-        ADAPTER_REGISTRY,
         adapt_description,
         adapt_text,
         is_adapted_resource,
@@ -259,17 +257,12 @@ def _validate_sources(repo_root: Path, manifest: Manifest) -> list[_ValidatedSou
 def _adapt_entry_text(
     entry: SkillEntry, text: str, *, relative_path: str = "SKILL.md"
 ) -> str:
-    if entry.source not in ADAPTER_REGISTRY and entry.conversion == "native":
-        # Unit-built native fixtures are intentionally outside the production manifest.
-        return text
     return adapt_text(
         entry.source, text, relative_path=relative_path, entry=entry
     )
 
 
 def _adapt_entry_description(entry: SkillEntry, description: str) -> str:
-    if entry.source not in ADAPTER_REGISTRY and entry.conversion == "native":
-        return description
     return adapt_description(entry.source, description, entry=entry)
 
 
@@ -289,9 +282,7 @@ def _copy_resource(
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
         relative_path = relative.as_posix()
-        has_resource_adapter = entry.source in ADAPTER_REGISTRY and is_adapted_resource(
-            entry.source, relative_path
-        )
+        has_resource_adapter = is_adapted_resource(entry.source, relative_path)
         if has_resource_adapter:
             with path.open("r", encoding="utf-8", newline="") as source_file:
                 content = source_file.read()

@@ -10,6 +10,13 @@ class AdapterSpec:
     dependencies: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ExpectedRewrite:
+    pattern: re.Pattern[str]
+    expected: int
+    replacement: Any = None
+
+
 _ADAPTERS = {
     "agent-reach": AdapterSpec(
         "dependency-required", ("agent-reach CLI and platform backends",)
@@ -253,10 +260,321 @@ _CROSS_SKILL_PATHS = {
     "tiger-leader-hunt",
 }
 
-_PAGE_RETHINK_BROWSER_LINE = re.compile(
-    r"(?m)^- \*\*Live page\*\*:.*Use the gstack browse binary:.*$"
-)
 _AGENT_CALL_BLOCK = re.compile(r"(?ms)^Agent\(\r?\n.*?^\)\r?\n")
+
+_LAST30DAYS_CODEX_INSTALL = (
+    "# STEP 0: CODEX INSTALL SELF-CHECK\n\n"
+    "Use the directory containing this loaded `SKILL.md` as `SKILL_DIR`. Confirm "
+    "`scripts/last30days.py` exists directly beneath it. Do not probe or execute "
+    "historical Claude plugin/cache installations.\n\n---\n"
+)
+_LAST30DAYS_WEB_PREFLIGHT = (
+    "**STEP 0 - PREFLIGHT CODEX WEB RESEARCH.** Confirm the current runtime exposes "
+    "Codex web search (the `web.run` capability) before planning supplemental research. "
+    "No deferred-tool selection call is needed. If web search is unavailable, use the "
+    "engine's documented `--auto-resolve` fallback and report that limitation.\n"
+)
+_MEMORY_STATUS_CONFIG_CHECK = (
+    "### Check Codex MCP config (read-only)\n"
+    "Read `~/.codex/config.toml` with Python 3.11's TOML parser and report only whether "
+    "the server entry exists; never print its configuration values.\n"
+    "```bash\n"
+    "python3 -c 'from pathlib import Path; import tomllib; "
+    "p=Path.home()/\".codex/config.toml\"; "
+    "d=tomllib.loads(p.read_text(encoding=\"utf-8\")) if p.is_file() else {}; "
+    "print(\"claude-memory configured\" if \"claude-memory\" in "
+    "d.get(\"mcp_servers\", {}) else \"claude-memory not configured\")'\n"
+    "```\n"
+)
+
+_SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
+    ("context-keeper", "DESCRIPTION"): (
+        ExpectedRewrite(
+            re.compile(r"\.claude/sessions/"), 1, ".codex/sessions/"
+        ),
+    ),
+    ("context-keeper", "SKILL.md"): (
+        ExpectedRewrite(re.compile(r"\.claude/sessions"), 5, ".codex/sessions"),
+    ),
+    ("closing-ritual", "SKILL.md"): (
+        ExpectedRewrite(re.compile(r"\.claude/sessions"), 1, ".codex/sessions"),
+    ),
+    ("doc-keeper", "SKILL.md"): (
+        ExpectedRewrite(re.compile(r"\.claude/sessions"), 2, ".codex/sessions"),
+    ),
+    ("tiger-doc-keeper", "SKILL.md"): (
+        ExpectedRewrite(re.compile(r"\.claude/sessions"), 2, ".codex/sessions"),
+    ),
+    ("page-rethink", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(r"(?m)^- \*\*Live page\*\*:.*Use the gstack browse binary:.*$"),
+            1,
+            (
+                "- **Live page**: use the installed `browser-use:browser` or "
+                "`vercel:agent-browser` skill to open the URL, inspect rendered text, "
+                "and capture viewport screenshots."
+            ),
+        ),
+    ),
+    ("skill-miner", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills")), 1, "~/.codex/skills"
+        ),
+    ),
+    ("skill-miner", "REFERENCE.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills")), 1, "~/.codex/skills"
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "`scripts/digest.py` reads "
+                    "`~/.claude/projects/-Users-brentbryson/*.jsonl` "
+                    "(override `--dir`),"
+                )
+            ),
+            1,
+            "`scripts/digest.py` may read historical "
+            "`~/.claude/projects/-Users-brentbryson/*.jsonl` only as read-only "
+            "evidence (override `--dir`),",
+        ),
+    ),
+    ("skills-librarian", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills")), 3, "~/.codex/skills"
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("source of truth Claude Code loads from")),
+            1,
+            "source of truth Codex loads from",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/agents/")), 1, "~/.agents/"
+        ),
+    ),
+    ("skills-librarian", "DESCRIPTION"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills")), 1, "~/.codex/skills"
+        ),
+    ),
+    ("two-brents-brand", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("In Brent's ~/.claude/skills stack")),
+            1,
+            "In Brent's ~/.codex/skills stack",
+        ),
+    ),
+    ("doc-keeper", "DESCRIPTION"): (
+        ExpectedRewrite(
+            re.compile(re.escape("Dispatches the doc-keeper subagent, which")),
+            1,
+            "Runs the doc-keeper workflow directly; it",
+        ),
+    ),
+    ("tiger-doc-keeper", "DESCRIPTION"): (
+        ExpectedRewrite(
+            re.compile(re.escape("Dispatches the tiger-doc-keeper subagent to")),
+            1,
+            "Runs the tiger-doc-keeper workflow directly to",
+        ),
+    ),
+    ("allsup-leads-ssdi", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills/")), 2, "~/.codex/skills/"
+        ),
+    ),
+    ("allsup-leads-veterans", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills/")), 2, "~/.codex/skills/"
+        ),
+    ),
+    ("tiger-leader-hunt", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("$HOME/.claude/skills/")),
+            2,
+            "$HOME/.codex/skills/",
+        ),
+    ),
+    ("truth-keeper", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills/")), 1, "~/.codex/skills/"
+        ),
+    ),
+    ("vault-hygiene", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(
+                r"(?ms)^### Phase 5: Memory Staleness Audit\n.*?"
+                r"^### Phase 6: Context Drift Detection$"
+            ),
+            1,
+            (
+                "### Phase 5: Memory Staleness Audit\n\n"
+                "Inspect current Codex session and project documentation for stale state.\n\n"
+                "Treat historical "
+                "`~/.claude/projects/-Users-brentbryson-Desktop-vault-personal/memory/` "
+                "files as read-only evidence; never update or delete them. Record current "
+                "corrections in the vault's current documentation and indexes.\n\n"
+                "### Phase 6: Context Drift Detection"
+            ),
+        ),
+    ),
+    ("the-rebuild", "REFERENCE.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/skills/signal-mine/")),
+            1,
+            "~/.codex/skills/signal-mine/",
+        ),
+    ),
+    ("claude-memory-index", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("~/.claude/claude_desktop_config.json")),
+            1,
+            "~/.codex/config.toml",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("restart Claude Code")),
+            1,
+            "restart the active Codex session",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("Install Claude Code plugin")),
+            1,
+            "Install claude-memory MCP integration",
+        ),
+    ),
+    ("claude-memory-status", "SKILL.md"): (
+        ExpectedRewrite(re.compile(r"claude_desktop_config\.json"), 3),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "2. Check if MCP server is configured in "
+                    "~/.claude/claude_desktop_config.json"
+                )
+            ),
+            1,
+            "2. Check read-only whether the MCP server is configured in "
+            "~/.codex/config.toml",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "- [ ] claude-memory MCP server is in claude_desktop_config.json"
+                )
+            ),
+            1,
+            "- [ ] claude-memory MCP server is present in `~/.codex/config.toml`",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?ms)^### Check MCP config\n```bash\ncat "
+                r"~/\.claude/claude_desktop_config\.json \| python3 -m json\.tool "
+                r"\| grep -A8 \"claude-memory\"\n```\n"
+            ),
+            1,
+            _MEMORY_STATUS_CONFIG_CHECK,
+        ),
+    ),
+    ("gitnexus-cli", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("Restart Claude Code")),
+            1,
+            "Restart the active Codex session",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "In Claude Code, a PostToolUse hook detects staleness after `git "
+                    "commit` and `git merge` and notifies the agent to run `analyze`"
+                )
+            ),
+            1,
+            "In Codex, check staleness explicitly after `git commit` and `git merge` "
+            "and run `analyze` when needed",
+        ),
+    ),
+    ("last30days", "SKILL.md"): (
+        ExpectedRewrite(
+            re.compile(re.escape("$HOME/.claude/plugins/cache/")), 3
+        ),
+        ExpectedRewrite(re.compile(r"\.claude-plugin/plugin\.json"), 1),
+        ExpectedRewrite(re.compile(r"ToolSearch"), 2),
+        ExpectedRewrite(re.compile(r"(?m)^WebSearch\((\".*\")\)$"), 11),
+        ExpectedRewrite(re.compile(r"\bWebSearches\b"), 7),
+        ExpectedRewrite(re.compile(r"\bWebSearch\b"), 85),
+        ExpectedRewrite(
+            re.compile(
+                r"(?ms)^# STEP 0: STALE-CLONE SELF-CHECK.*?^---\n"
+            ),
+            1,
+            _LAST30DAYS_CODEX_INSTALL,
+        ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?ms)^\*\*STEP 0 - LOAD WEBSEARCH FIRST\.\*\*.*?"
+                r"^Load WebSearch first\. No exceptions\. Then proceed to the "
+                r"branching rule below\.\n"
+            ),
+            1,
+            _LAST30DAYS_WEB_PREFLIGHT,
+        ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?m)^Replace `\{VERSION\}` with the installed plugin version .*"
+                r"then the synthesis begins\.$"
+            ),
+            1,
+            (
+                "Pass through the badge emitted by the engine. If the engine reports "
+                "`v?`, state that the installed version is unavailable instead of "
+                "probing plugin metadata. Use today's date for `{YYYY-MM-DD}` only when "
+                "a manual fallback badge is unavoidable."
+            ),
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "**MANDATORY on Claude Code (and any platform with WebSearch).**"
+                )
+            ),
+            1,
+            "**MANDATORY in Codex whenever web search is available.**",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    "1. **Platform branch chosen.** You know whether this session has "
+                    "WebSearch (Claude Code) or does not (OpenClaw, raw CLI, Codex "
+                    "without web tools)."
+                )
+            ),
+            1,
+            "1. **Platform branch chosen.** Determine whether the current Codex "
+            "session has web search; if it does not, use the documented no-web "
+            "fallback.",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?m)^#   Read ~/\.claude/skills/last30days/SKILL\.md.*\n"
+            ),
+            2,
+            "",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                r"(?m)^#   Read ~/\.claude/plugins/cache/.*\n#     .*\n"
+            ),
+            2,
+            "",
+        ),
+        ExpectedRewrite(
+            re.compile(r"(?m)^WebSearch\((\".*\")\)$"),
+            11,
+            r"Codex web search query: \1",
+        ),
+        ExpectedRewrite(re.compile(r"\bWebSearches\b"), 7, "web searches"),
+        ExpectedRewrite(re.compile(r"\bWebSearch\b"), 85, "Codex web search"),
+    ),
+}
 
 
 def is_adapted_resource(skill_name: str, relative_path: str) -> bool:
@@ -327,22 +645,30 @@ def _validate_entry(skill_name: str, spec: AdapterSpec, entry: Any) -> None:
         )
 
 
+def _apply_source_rewrites(
+    skill_name: str, text: str, relative_path: str, *, strict: bool
+) -> str:
+    rewrites = _SOURCE_REWRITES.get((skill_name, relative_path), ())
+    if strict:
+        for rewrite in rewrites:
+            count = len(rewrite.pattern.findall(text))
+            if count != rewrite.expected:
+                raise ValueError(
+                    f"{skill_name}: expected {rewrite.expected} occurrence(s) of "
+                    f"{rewrite.pattern.pattern!r}, found {count}; source adapter drifted"
+                )
+    for rewrite in rewrites:
+        if rewrite.replacement is not None:
+            text = rewrite.pattern.sub(rewrite.replacement, text)
+    return text
+
+
 def _adapt_named_text(
     skill_name: str, text: str, relative_path: str, *, strict: bool, newline: str
 ) -> str:
-    if skill_name == "page-rethink" and relative_path == "SKILL.md":
-        if strict or _PAGE_RETHINK_BROWSER_LINE.search(text):
-            text = _replace_required_regex(
-                skill_name,
-                text,
-                _PAGE_RETHINK_BROWSER_LINE,
-                (
-                    "- **Live page**: use the installed `browser-use:browser` or "
-                    "`vercel:agent-browser` skill to open the URL, inspect rendered text, "
-                    "and capture viewport screenshots."
-                ),
-                expected=1,
-            )
+    text = _apply_source_rewrites(
+        skill_name, text, relative_path, strict=strict
+    )
 
     if skill_name in {"doc-keeper", "tiger-doc-keeper"} and relative_path == "SKILL.md":
         direct_workflow = newline.join(
@@ -434,16 +760,6 @@ def _adapt_named_text(
             "## Hard rules",
         )
 
-    if skill_name == "the-rebuild" and relative_path == "REFERENCE.md":
-        old_path = "~/.claude/skills/signal-mine/"
-        count = text.count(old_path)
-        if strict and count != 1:
-            raise ValueError(
-                f"{skill_name}: expected 1 occurrence(s) of {old_path!r}, found {count}; "
-                "source adapter drifted"
-            )
-        text = text.replace(old_path, "~/.codex/skills/signal-mine/")
-
     if skill_name in _SESSION_SKILLS:
         text = text.replace(".claude/sessions", ".codex/sessions")
     if skill_name in _LIBRARY_SKILLS or skill_name in _CROSS_SKILL_PATHS:
@@ -470,21 +786,21 @@ def _adapt_named_text(
     text = text.replace("$HOME/.claude/skills/", "$HOME/.codex/skills/")
     text = text.replace("~/.claude/skills/", "~/.codex/skills/")
 
-    safe_exact_rewrites = (
-        ("AskUserQuestion", "Codex user-input request"),
-        ("TodoWrite", "Codex task checklist"),
-        ("Bash tool", "shell execution capability"),
-        ("Read tool", "file-reading capability"),
-        ("Write tool", "file-editing capability"),
-        ("WebFetch", "Codex web fetch capability"),
-        ("WebSearch", "Codex web search capability"),
-        ("Agent tool", "optional delegation capability"),
-        ("Task tool", "optional delegated-task capability"),
-        ("Task(", "optional delegated task ("),
-        ("Agent(", "optional delegation ("),
+    safe_boundary_rewrites = (
+        (re.compile(r"\bAskUserQuestion\b"), "Codex user-input request"),
+        (re.compile(r"\bTodoWrite\b"), "Codex task checklist"),
+        (re.compile(r"\bBash tool\b"), "shell execution capability"),
+        (re.compile(r"\bRead tool\b"), "file-reading capability"),
+        (re.compile(r"\bWrite tool\b"), "file-editing capability"),
+        (re.compile(r"\bWebFetch\b"), "Codex web fetch"),
+        (re.compile(r"\bWebSearch\b"), "Codex web search"),
+        (re.compile(r"\bAgent tool\b"), "optional delegation capability"),
+        (re.compile(r"\bTask tool\b"), "optional delegated-task capability"),
+        (re.compile(r"Task\("), "optional delegated task ("),
+        (re.compile(r"Agent\("), "optional delegation ("),
     )
-    for source, replacement in safe_exact_rewrites:
-        text = text.replace(source, replacement)
+    for pattern, replacement in safe_boundary_rewrites:
+        text = pattern.sub(replacement, text)
     return text
 
 
@@ -519,9 +835,15 @@ def _runtime_details(skill_name: str) -> list[str]:
                 "read-only analysis."
             )
         if skill_name == "skills-librarian":
-            details.append(
-                "Set `SKILLS_DIR=~/.codex/skills` when invoking copied audit or backup "
-                "helpers so their preserved source defaults cannot select a Claude shelf."
+            details.extend(
+                (
+                    "Set `SKILLS_DIR=~/.codex/skills` when invoking copied audit or "
+                    "backup helpers so their preserved source defaults cannot select a "
+                    "Claude shelf.",
+                    "Set `AGENTS_DIR=~/.agents` for current Codex agent definitions.",
+                    "Set `AGENTS_SRC=~/.agents` when invoking the copied backup helper "
+                    "so it mirrors those definitions.",
+                )
             )
     if skill_name in _BROWSER_SKILLS:
         details.append(
@@ -569,6 +891,12 @@ def _append_runtime(
     lines.extend(_runtime_details(skill_name))
     if lines[-1] != "":
         lines.append("")
+    lines.extend(
+        (
+            "Never expose or print secret, credential, or token values.",
+            "",
+        )
+    )
     if spec.dependencies:
         lines.append("Mandatory dependencies:")
         lines.extend(f"- `{dependency}`" for dependency in spec.dependencies)
@@ -648,7 +976,9 @@ def adapt_description(skill_name: str, description: str, *, entry: Any = None) -
     if spec.conversion == "native":
         return description
 
-    adapted = description
+    adapted = _apply_source_rewrites(
+        skill_name, description, "DESCRIPTION", strict=entry is not None
+    )
     if skill_name in _SESSION_SKILLS:
         adapted = adapted.replace(".claude/sessions/", ".codex/sessions/")
     if skill_name in _LIBRARY_SKILLS:

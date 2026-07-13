@@ -9,6 +9,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts.adapt import ADAPTER_REGISTRY, AdapterSpec
 from scripts.build import BuildResult, build_collection, main
 from scripts.common import (
     Manifest,
@@ -175,12 +176,20 @@ class FrontmatterTests(unittest.TestCase):
 
 class BuildTests(unittest.TestCase):
     def setUp(self):
+        test_registry = dict(ADAPTER_REGISTRY)
+        for name in ("sample", "source-name", "alpha", "zeta"):
+            test_registry[name] = AdapterSpec("native", ())
+        self.adapter_registry_patcher = patch(
+            "scripts.adapt.ADAPTER_REGISTRY", test_registry
+        )
+        self.adapter_registry_patcher.start()
         self.repository = tempfile.TemporaryDirectory()
         self.output_parent = tempfile.TemporaryDirectory()
         self.repo_root = Path(self.repository.name)
         self.output = Path(self.output_parent.name) / "skills"
 
     def tearDown(self):
+        self.adapter_registry_patcher.stop()
         self.output_parent.cleanup()
         self.repository.cleanup()
 
@@ -232,6 +241,16 @@ class BuildTests(unittest.TestCase):
         self.assertGreaterEqual(len(short_description), 25)
         self.assertLessEqual(len(short_description), 64)
         self.assertTrue((self.output / ".codex-skills-generated").is_file())
+
+    def test_build_rejects_an_unknown_native_source_adapter(self):
+        self.make_skill("unknown-native")
+
+        with self.assertRaisesRegex(KeyError, "unknown Codex adapter"):
+            build_collection(
+                self.repo_root,
+                manifest(entry("unknown-native")),
+                self.output,
+            )
 
     def test_allows_only_canonical_output_inside_repository(self):
         self.make_skill()
