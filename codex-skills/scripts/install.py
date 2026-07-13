@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
+import ctypes
+import errno
 import json
 import os
 import re
+import stat
 import sys
 import uuid
 from dataclasses import dataclass
@@ -30,6 +33,9 @@ VALIDATION_FINGERPRINT = re.compile(
 )
 GENERATED_MARKER = ".codex-skills-generated"
 TEMP_MARKER = ".codex-install-"
+TEMP_ATTEMPTS = 32
+RENAME_EXCHANGE = 0x00000002
+AT_FDCWD = -100
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,7 @@ class InstallResult:
     skipped: tuple[str, ...] = ()
     collisions: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -54,6 +61,7 @@ class InstallResult:
             "skipped": list(self.skipped),
             "collisions": list(self.collisions),
             "errors": list(self.errors),
+            "warnings": list(self.warnings),
         }
 
 
@@ -83,6 +91,24 @@ class _Plan:
             collisions=self.collisions,
             errors=self.errors if errors is None else errors,
         )
+
+
+@dataclass
+class _AppliedLink:
+    name: str
+    operation: str
+    path: Path
+    new_identity: tuple[int, int, int]
+    old_target: str | None = None
+    old_identity: tuple[int, int, int] | None = None
+    backup: Path | None = None
+    recovery: Path | None = None
+
+
+@dataclass(frozen=True)
+class _MutationOutcome:
+    errors: tuple[str, ...]
+    warnings: tuple[str, ...]
 
 
 def _lexists(path: Path) -> bool:
@@ -283,75 +309,174 @@ def _create_destination(destination: Path, created: list[Path]) -> None:
             raise OSError(f"destination directory became unsafe: {path}")
 
 
-def _temporary_link(destination: Path, name: str) -> Path:
-    return destination / f".{name}{TEMP_MARKER}{uuid.uuid4().hex}"
+def _temporary_path(destination: Path, name: str, kind: str) -> Path:
+    return destination / f".{name}.{kind}{TEMP_MARKER}{uuid.uuid4().hex}"
 
 
-def _remove_link(path: Path) -> None:
-    if path.is_symlink():
-        path.unlink()
+def _path_identity(path: Path) -> tuple[int, int, int]:
+    info = path.lstat()
+    return info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)
 
 
-def _stage_link(
+def _create_symlink_exclusive(
     source: Path,
     destination: Path,
     name: str,
-    temporary_paths: list[Path],
+    kind: str,
+    owned_paths: list[Path],
 ) -> Path:
-    temporary = _temporary_link(destination, name)
-    ready = _temporary_link(destination, f"{name}.ready")
-    temporary_paths.extend((temporary, ready))
-    os.symlink(
-        str(source.resolve(strict=True)),
-        temporary,
-        target_is_directory=True,
+    target = str(source.resolve(strict=True))
+    for _ in range(TEMP_ATTEMPTS):
+        candidate = _temporary_path(destination, name, kind)
+        try:
+            os.symlink(target, candidate, target_is_directory=True)
+        except FileExistsError:
+            continue
+        owned_paths.append(candidate)
+        return candidate
+    raise FileExistsError(
+        errno.EEXIST,
+        f"cannot allocate exclusive {kind} link after {TEMP_ATTEMPTS} attempts",
     )
-    os.replace(temporary, ready)
+
+
+def _create_hardlink_exclusive(
+    source: Path,
+    destination: Path,
+    name: str,
+    kind: str,
+    owned_paths: list[Path],
+) -> Path:
+    for _ in range(TEMP_ATTEMPTS):
+        candidate = _temporary_path(destination, name, kind)
+        try:
+            os.link(source, candidate, follow_symlinks=False)
+        except FileExistsError:
+            continue
+        owned_paths.append(candidate)
+        return candidate
+    raise FileExistsError(
+        errno.EEXIST,
+        f"cannot allocate exclusive {kind} link after {TEMP_ATTEMPTS} attempts",
+    )
+
+
+def _prepare_ready_link(
+    source: Path,
+    destination: Path,
+    name: str,
+    owned_paths: list[Path],
+) -> Path:
+    stage = _create_symlink_exclusive(
+        source, destination, name, "stage", owned_paths
+    )
+    ready = _create_hardlink_exclusive(
+        stage, destination, name, "ready", owned_paths
+    )
+    stage.unlink()
     return ready
+
+
+def _atomic_exchange_capability_error() -> str | None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        return None if hasattr(libc, "renamex_np") else "renamex_np is unavailable"
+    if sys.platform.startswith("linux"):
+        return None if hasattr(libc, "renameat2") else "renameat2 is unavailable"
+    return f"atomic symlink exchange is unsupported on {sys.platform}"
+
+
+def _atomic_exchange(first: Path, second: Path) -> None:
+    capability_error = _atomic_exchange_capability_error()
+    if capability_error:
+        raise OSError(errno.ENOTSUP, capability_error)
+    libc = ctypes.CDLL(None, use_errno=True)
+    first_bytes = os.fsencode(first)
+    second_bytes = os.fsencode(second)
+    if sys.platform == "darwin":
+        exchange = libc.renamex_np
+        exchange.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        exchange.restype = ctypes.c_int
+        result = exchange(first_bytes, second_bytes, RENAME_EXCHANGE)
+    else:
+        exchange = libc.renameat2
+        exchange.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        exchange.restype = ctypes.c_int
+        result = exchange(
+            AT_FDCWD,
+            first_bytes,
+            AT_FDCWD,
+            second_bytes,
+            RENAME_EXCHANGE,
+        )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(
+            error_number,
+            f"atomic exchange failed for {first} and {second}: "
+            f"{os.strerror(error_number)}",
+        )
 
 
 def _publish_without_overwrite(ready: Path, destination: Path) -> None:
     os.link(ready, destination, follow_symlinks=False)
 
 
-def _restore_unexpected_path(backup: Path, destination: Path) -> None:
-    if _lexists(destination):
-        raise OSError(f"cannot restore concurrent path without overwrite: {destination}")
-    if backup.is_dir() and not backup.is_symlink():
-        backup.rename(destination)
-        return
-    os.link(backup, destination, follow_symlinks=False)
-    backup.unlink()
-
-
-def _restore_link(
-    path: Path,
-    backup: Path,
-    raw_target: str,
-    temporary_paths: list[Path],
-) -> None:
-    if _lexists(path):
-        if not path.is_symlink():
-            raise OSError(f"cannot restore managed link over real path: {path}")
+def _cleanup_path(path: Path) -> None:
+    if path.is_symlink():
         path.unlink()
-    try:
-        os.replace(backup, path)
-    except OSError:
-        if _lexists(path):
-            raise
-        replacement = _temporary_link(path.parent, path.name)
-        temporary_paths.append(replacement)
-        os.symlink(raw_target, replacement, target_is_directory=True)
-        _publish_without_overwrite(replacement, path)
-        replacement.unlink()
+    elif _lexists(path):
+        raise OSError(f"refusing to clean non-symlink temporary path: {path}")
 
 
-def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> tuple[str, ...]:
+def _rollback_links(applied: list[_AppliedLink], errors: list[str]) -> None:
+    for item in reversed(applied):
+        try:
+            if _path_identity(item.path) != item.new_identity:
+                raise OSError(
+                    f"installed path changed before rollback: {item.path}"
+                )
+            if item.operation == "created":
+                if not item.path.is_symlink():
+                    raise OSError(f"created path is not a symlink: {item.path}")
+                item.path.unlink()
+                continue
+
+            material = item.recovery if item.recovery and _lexists(item.recovery) else item.backup
+            if material is None or not _lexists(material):
+                raise OSError(f"rollback material is missing for {item.name}")
+            if (
+                item.old_identity is None
+                or _path_identity(material) != item.old_identity
+                or not material.is_symlink()
+                or os.readlink(material) != item.old_target
+            ):
+                raise OSError(f"rollback material changed for {item.name}")
+            _atomic_exchange(item.path, material)
+            if (
+                _path_identity(item.path) != item.old_identity
+                or os.readlink(item.path) != item.old_target
+            ):
+                raise OSError(f"atomic rollback verification failed for {item.name}")
+        except (OSError, RuntimeError) as rollback_error:
+            errors.append(f"rollback failed for {item.name}: {rollback_error}")
+
+
+def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> _MutationOutcome:
     created_directories: list[Path] = []
-    temporary_paths: list[Path] = []
-    applied: list[tuple[str, str, str | None, Path | None]] = []
+    owned_paths: list[Path] = []
+    recovery_paths: list[Path] = []
+    applied: list[_AppliedLink] = []
     previous = dict(plan.previous_links)
     errors: list[str] = []
+    warnings: list[str] = []
+    committed = False
     try:
         _create_destination(destination, created_directories)
         if destination.is_symlink() or not destination.is_dir():
@@ -360,52 +485,111 @@ def _apply_plan(source: _Source, destination: Path, plan: _Plan) -> tuple[str, .
             path = destination / name
             operation = "created" if name in plan.created else "updated"
             old_target = previous.get(name)
-            if operation == "created" and _lexists(path):
-                raise OSError(f"destination changed during install: {path}")
-            if operation == "updated":
-                if not path.is_symlink() or os.readlink(path) != old_target:
-                    raise OSError(f"managed link changed during install: {path}")
-                backup = _temporary_link(destination, f"{name}.backup")
-                temporary_paths.append(backup)
-                os.replace(path, backup)
-                if not backup.is_symlink() or os.readlink(backup) != old_target:
-                    _restore_unexpected_path(backup, path)
-                    raise OSError(f"managed link changed during install: {path}")
-                applied.append((name, operation, old_target, backup))
-            else:
-                backup = None
-
-            ready = _stage_link(source.root / name, destination, name, temporary_paths)
-            _publish_without_overwrite(ready, path)
             if operation == "created":
-                applied.append((name, operation, old_target, backup))
+                if _lexists(path):
+                    raise OSError(f"destination changed during install: {path}")
+                ready = _prepare_ready_link(
+                    source.root / name, destination, name, owned_paths
+                )
+                new_identity = _path_identity(ready)
+                try:
+                    _publish_without_overwrite(ready, path)
+                except (OSError, RuntimeError):
+                    if (
+                        path.is_symlink()
+                        and _path_identity(path) == new_identity
+                    ):
+                        applied.append(
+                            _AppliedLink(name, operation, path, new_identity)
+                        )
+                    raise
+                applied.append(
+                    _AppliedLink(name, operation, path, new_identity)
+                )
+                ready.unlink()
+                continue
+
+            if not path.is_symlink() or os.readlink(path) != old_target:
+                raise OSError(f"managed link changed during install: {path}")
+            old_identity = _path_identity(path)
+            backup = _create_hardlink_exclusive(
+                path, destination, name, "backup", owned_paths
+            )
+            if _path_identity(backup) != old_identity:
+                raise OSError(f"managed link changed while backing up: {path}")
+            ready = _prepare_ready_link(
+                source.root / name, destination, name, owned_paths
+            )
+            new_identity = _path_identity(ready)
+            item = _AppliedLink(
+                name,
+                operation,
+                path,
+                new_identity,
+                old_target=old_target,
+                old_identity=old_identity,
+                backup=backup,
+            )
+            try:
+                _atomic_exchange(path, ready)
+            except (OSError, RuntimeError):
+                if (
+                    path.is_symlink()
+                    and ready.is_symlink()
+                    and _path_identity(path) == new_identity
+                    and _path_identity(ready) == old_identity
+                    and os.readlink(ready) == old_target
+                ):
+                    applied.append(item)
+                raise
+            if (
+                _path_identity(ready) != old_identity
+                or not ready.is_symlink()
+                or os.readlink(ready) != old_target
+            ):
+                _atomic_exchange(path, ready)
+                raise OSError(f"managed link changed during atomic exchange: {path}")
+            applied.append(item)
             ready.unlink()
+
+        updates = [item for item in applied if item.operation == "updated"]
+        for item in updates:
+            assert item.backup is not None
+            item.recovery = _create_hardlink_exclusive(
+                item.backup,
+                destination,
+                item.name,
+                "recovery",
+                recovery_paths,
+            )
+        for item in updates:
+            assert item.backup is not None
+            item.backup.unlink()
+        committed = True
     except (OSError, RuntimeError) as error:
         errors.append(f"installation mutation failed: {error}")
-        for name, operation, old_target, backup in reversed(applied):
-            path = destination / name
-            try:
-                if operation == "created":
-                    if not path.is_symlink():
-                        raise OSError(f"created path is no longer a symlink: {path}")
-                    path.unlink()
-                elif old_target is not None and backup is not None:
-                    _restore_link(path, backup, old_target, temporary_paths)
-            except OSError as rollback_error:
-                errors.append(f"rollback failed for {name}: {rollback_error}")
+        _rollback_links(applied, errors)
     finally:
-        for temporary in temporary_paths:
-            try:
-                _remove_link(temporary)
-            except OSError as cleanup_error:
-                errors.append(f"temporary cleanup failed for {temporary}: {cleanup_error}")
-        if errors:
+        if committed:
+            for recovery in recovery_paths:
+                try:
+                    _cleanup_path(recovery)
+                except (OSError, RuntimeError) as cleanup_error:
+                    warnings.append(
+                        f"committed install left recovery link {recovery}: {cleanup_error}"
+                    )
+        else:
+            for path in reversed((*owned_paths, *recovery_paths)):
+                try:
+                    _cleanup_path(path)
+                except (OSError, RuntimeError) as cleanup_error:
+                    errors.append(f"temporary cleanup failed for {path}: {cleanup_error}")
             for directory in reversed(created_directories):
                 try:
                     directory.rmdir()
                 except OSError:
                     pass
-    return tuple(errors)
+    return _MutationOutcome(tuple(errors), tuple(warnings))
 
 
 def install(
@@ -431,15 +615,29 @@ def install(
 
     if plan.errors or plan.collisions or dry_run:
         return plan.result()
-    mutation_errors = _apply_plan(source, target, plan)
-    if mutation_errors:
+    if plan.updated:
+        capability_error = _atomic_exchange_capability_error()
+        if capability_error:
+            return plan.result(
+                errors=(f"atomic exchange unsupported: {capability_error}",)
+            )
+    outcome = _apply_plan(source, target, plan)
+    if outcome.errors:
         return InstallResult(
             unchanged=plan.unchanged,
             skipped=plan.skipped,
             collisions=plan.collisions,
-            errors=mutation_errors,
+            errors=outcome.errors,
+            warnings=outcome.warnings,
         )
-    return plan.result()
+    return InstallResult(
+        created=plan.created,
+        updated=plan.updated,
+        unchanged=plan.unchanged,
+        skipped=plan.skipped,
+        collisions=plan.collisions,
+        warnings=outcome.warnings,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -467,6 +665,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Collision: {name}", file=sys.stderr)
         for error in result.errors:
             print(f"Error: {error}", file=sys.stderr)
+        for warning in result.warnings:
+            print(f"Warning: {warning}", file=sys.stderr)
     return 0 if result.ok else 1
 
 

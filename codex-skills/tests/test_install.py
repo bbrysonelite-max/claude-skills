@@ -55,6 +55,7 @@ class InstallTests(unittest.TestCase):
                 "skipped": [],
                 "collisions": [],
                 "errors": ["error"],
+                "warnings": [],
             },
             result.to_dict(),
         )
@@ -288,32 +289,298 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(result.errors)
         self.assertFalse(self.destination.exists())
 
+    def make_stale_managed_links(
+        self, destination: Path, names: tuple[str, ...]
+    ) -> dict[str, str]:
+        destination.mkdir(parents=True)
+        collection = COLLECTION.resolve()
+        targets = tuple(reversed(names))
+        raw_targets: dict[str, str] = {}
+        for name, wrong_name in zip(names, targets, strict=True):
+            if wrong_name == name:
+                wrong_name = "agent-reach" if name != "agent-reach" else "ground-truth"
+            raw_target = str(collection / wrong_name)
+            (destination / name).symlink_to(raw_target, target_is_directory=True)
+            raw_targets[name] = raw_target
+        return raw_targets
+
+    def assert_only_original_links(
+        self, destination: Path, raw_targets: dict[str, str]
+    ) -> None:
+        self.assertEqual(sorted(raw_targets), sorted(path.name for path in destination.iterdir()))
+        for name, raw_target in raw_targets.items():
+            self.assertTrue((destination / name).is_symlink())
+            self.assertEqual(raw_target, os.readlink(destination / name))
+
+    def test_backup_cleanup_failure_rolls_back_everything(self):
+        names = ("agent-reach", "ai-evaluation-audit", "allsup-leads-ssdi")
+        for error_type in (OSError, RuntimeError):
+            for failure_position in (1, 2, 3):
+                with self.subTest(
+                    error_type=error_type.__name__, position=failure_position
+                ):
+                    destination = self.root / f"cleanup-{error_type.__name__}-{failure_position}"
+                    raw_targets = self.make_stale_managed_links(destination, names)
+                    real_unlink = os.unlink
+                    attempts = 0
+                    failed = False
+
+                    def fail_backup_once(path, *args, **kwargs):
+                        nonlocal attempts, failed
+                        if ".backup.codex-install-" in Path(path).name:
+                            attempts += 1
+                            if not failed and attempts == failure_position:
+                                failed = True
+                                raise error_type("injected backup cleanup failure")
+                        return real_unlink(path, *args, **kwargs)
+
+                    with patch("scripts.install.os.unlink", side_effect=fail_backup_once):
+                        result = install(COLLECTION, destination)
+
+                    self.assertTrue(
+                        any("backup cleanup failure" in error for error in result.errors),
+                        result.errors,
+                    )
+                    self.assertEqual((), result.created)
+                    self.assertEqual((), result.updated)
+                    self.assert_only_original_links(destination, raw_targets)
+                    self.assertEqual([], list(destination.glob(".*.codex-install-*")))
+
+    def test_staging_and_backup_name_collisions_are_never_clobbered(self):
+        real_symlink = os.symlink
+        real_link = os.link
+        for location in ("stage", "ready", "backup"):
+            for artifact_kind in ("file", "directory", "symlink"):
+                with self.subTest(location=location, artifact=artifact_kind):
+                    destination = self.root / f"exclusive-{location}-{artifact_kind}"
+                    if location == "backup":
+                        self.make_stale_managed_links(destination, ("agent-reach",))
+                    artifact_path: Path | None = None
+                    artifact_inode: int | None = None
+                    artifact_link_text: str | None = None
+
+                    def create_artifact(path: Path) -> None:
+                        nonlocal artifact_path, artifact_inode, artifact_link_text
+                        artifact_path = path
+                        if artifact_kind == "file":
+                            path.write_bytes(b"preserve collision bytes\n")
+                        elif artifact_kind == "directory":
+                            path.mkdir()
+                            (path / "payload.txt").write_text(
+                                "preserve directory\n", encoding="utf-8"
+                            )
+                        else:
+                            artifact_link_text = str(self.root / "unrelated-target")
+                            real_symlink(artifact_link_text, path)
+                        artifact_inode = path.lstat().st_ino
+
+                    def collide_symlink(source, target, *args, **kwargs):
+                        target_path = Path(target)
+                        if (
+                            artifact_path is None
+                            and location == "stage"
+                            and ".stage.codex-install-" in target_path.name
+                        ):
+                            create_artifact(target_path)
+                        return real_symlink(source, target, *args, **kwargs)
+
+                    def collide_link(source, target, *args, **kwargs):
+                        target_path = Path(target)
+                        if artifact_path is None and (
+                            (location == "ready" and ".ready.codex-install-" in target_path.name)
+                            or (
+                                location == "backup"
+                                and ".backup.codex-install-" in target_path.name
+                            )
+                        ):
+                            create_artifact(target_path)
+                        return real_link(source, target, *args, **kwargs)
+
+                    with (
+                        patch("scripts.install.os.symlink", side_effect=collide_symlink),
+                        patch("scripts.install.os.link", side_effect=collide_link),
+                    ):
+                        result = install(COLLECTION, destination)
+
+                    self.assertTrue(result.ok, result.errors)
+                    self.assertIsNotNone(artifact_path)
+                    assert artifact_path is not None and artifact_inode is not None
+                    self.assertEqual(artifact_inode, artifact_path.lstat().st_ino)
+                    if artifact_kind == "file":
+                        self.assertEqual(
+                            b"preserve collision bytes\n", artifact_path.read_bytes()
+                        )
+                    elif artifact_kind == "directory":
+                        self.assertEqual(
+                            "preserve directory\n",
+                            (artifact_path / "payload.txt").read_text(encoding="utf-8"),
+                        )
+                    else:
+                        self.assertEqual(artifact_link_text, os.readlink(artifact_path))
+
+    def test_managed_update_keeps_installed_name_present_through_exchange(self):
+        raw_targets = self.make_stale_managed_links(
+            self.destination, ("agent-reach",)
+        )
+        existing = self.destination / "agent-reach"
+        from scripts import install as install_module
+
+        real_exchange = install_module._atomic_exchange
+        checkpoints: list[bool] = []
+
+        def observe_exchange(first, second):
+            checkpoints.append(os.path.lexists(existing))
+            real_exchange(first, second)
+            checkpoints.append(os.path.lexists(existing))
+
+        with patch("scripts.install._atomic_exchange", side_effect=observe_exchange):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertTrue(checkpoints)
+        self.assertTrue(all(checkpoints))
+        self.assertNotEqual(raw_targets["agent-reach"], os.readlink(existing))
+        self.assertEqual(str((COLLECTION / "agent-reach").resolve()), os.readlink(existing))
+
+    def test_concurrent_real_replacement_during_exchange_is_preserved(self):
+        raw_targets = self.make_stale_managed_links(
+            self.destination, ("agent-reach",)
+        )
+        existing = self.destination / "agent-reach"
+        from scripts import install as install_module
+
+        real_exchange = install_module._atomic_exchange
+        injected = False
+
+        def replace_before_exchange(first, second):
+            nonlocal injected
+            if not injected:
+                injected = True
+                existing.unlink()
+                existing.write_bytes(b"concurrent personal file\n")
+            real_exchange(first, second)
+
+        with patch(
+            "scripts.install._atomic_exchange", side_effect=replace_before_exchange
+        ):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.errors)
+        self.assertFalse(existing.is_symlink())
+        self.assertEqual(b"concurrent personal file\n", existing.read_bytes())
+        self.assertNotEqual(raw_targets["agent-reach"], str(existing))
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
+    def test_unsupported_atomic_exchange_fails_before_destination_mutation(self):
+        raw_targets = self.make_stale_managed_links(
+            self.destination, ("agent-reach",)
+        )
+
+        with patch(
+            "scripts.install._atomic_exchange_capability_error",
+            return_value="atomic exchange unsupported in test",
+        ):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(any("unsupported" in error for error in result.errors))
+        self.assert_only_original_links(self.destination, raw_targets)
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
+    def test_exception_after_created_publication_rolls_back_created_link(self):
+        from scripts import install as install_module
+
+        real_publish = install_module._publish_without_overwrite
+        raised = False
+
+        def publish_then_raise(first, second):
+            nonlocal raised
+            real_publish(first, second)
+            if not raised:
+                raised = True
+                raise RuntimeError("injected exception after publication")
+
+        with patch(
+            "scripts.install._publish_without_overwrite", side_effect=publish_then_raise
+        ):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(any("after publication" in error for error in result.errors))
+        self.assertEqual((), result.created)
+        self.assertFalse(self.destination.exists())
+
+    def test_exception_after_atomic_swap_restores_original_link(self):
+        raw_targets = self.make_stale_managed_links(
+            self.destination, ("agent-reach",)
+        )
+        from scripts import install as install_module
+
+        real_exchange = install_module._atomic_exchange
+        raised = False
+
+        def exchange_then_raise(first, second):
+            nonlocal raised
+            real_exchange(first, second)
+            if not raised:
+                raised = True
+                raise RuntimeError("injected exception after atomic swap")
+
+        with patch("scripts.install._atomic_exchange", side_effect=exchange_then_raise):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(any("after atomic swap" in error for error in result.errors))
+        self.assert_only_original_links(self.destination, raw_targets)
+        self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
+
+    def test_recovery_cleanup_failure_warns_after_committed_update(self):
+        self.make_stale_managed_links(self.destination, ("agent-reach",))
+        real_unlink = os.unlink
+        failed = False
+
+        def fail_recovery_once(path, *args, **kwargs):
+            nonlocal failed
+            if not failed and ".recovery.codex-install-" in Path(path).name:
+                failed = True
+                raise OSError("injected recovery cleanup failure")
+            return real_unlink(path, *args, **kwargs)
+
+        with patch("scripts.install.os.unlink", side_effect=fail_recovery_once):
+            result = install(COLLECTION, self.destination)
+
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual((), result.errors)
+        self.assertTrue(
+            any("recovery cleanup failure" in warning for warning in result.warnings)
+        )
+        self.assertEqual(("agent-reach",), result.updated)
+        recovery = list(self.destination.glob(".*.recovery.codex-install-*"))
+        self.assertEqual(1, len(recovery))
+        self.assertTrue(recovery[0].is_symlink())
+
     def test_atomic_failure_rolls_back_links_and_removes_temp_debris(self):
         self.destination.mkdir(parents=True)
         existing = self.destination / "agent-reach"
         original_target = str(COLLECTION.resolve() / "ai-evaluation-audit")
         existing.symlink_to(original_target, target_is_directory=True)
-        real_replace = os.replace
+        from scripts import install as install_module
+
+        real_publish = install_module._publish_without_overwrite
         calls = 0
-        replacement_names: list[str] = []
 
         def fail_once(source, destination):
             nonlocal calls
             calls += 1
-            replacement_names.append(Path(destination).name)
             if calls == 3:
                 raise OSError("injected atomic failure")
-            return real_replace(source, destination)
+            return real_publish(source, destination)
 
-        with patch("scripts.install.os.replace", side_effect=fail_once):
+        with patch(
+            "scripts.install._publish_without_overwrite", side_effect=fail_once
+        ):
             result = install(COLLECTION, self.destination)
 
         self.assertTrue(any("injected atomic failure" in error for error in result.errors))
         self.assertEqual((), result.created)
         self.assertEqual((), result.updated)
-        self.assertTrue(replacement_names[0].startswith(".agent-reach.backup"))
-        self.assertTrue(replacement_names[1].startswith(".agent-reach.ready"))
-        self.assertTrue(replacement_names[2].startswith(".ai-evaluation-audit.ready"))
         self.assertEqual(original_target, os.readlink(existing))
         self.assertEqual(["agent-reach"], [item.name for item in self.destination.iterdir()])
         self.assertEqual([], list(self.destination.glob(".*.codex-install-*")))
@@ -326,7 +593,7 @@ class InstallTests(unittest.TestCase):
             nonlocal injected
             real_symlink(source, destination, *args, **kwargs)
             target = Path(destination)
-            if not injected and ".agent-reach.codex-install-" in target.name:
+            if not injected and ".agent-reach.stage.codex-install-" in target.name:
                 injected = True
                 (target.parent / "agent-reach").write_text(
                     "appeared concurrently\n", encoding="utf-8"
@@ -364,7 +631,7 @@ class InstallTests(unittest.TestCase):
     def test_runtime_failure_during_mutation_rolls_back_prior_links(self):
         from scripts import install as install_module
 
-        real_stage = install_module._stage_link
+        real_stage = install_module._prepare_ready_link
         calls = 0
 
         def fail_second(*args, **kwargs):
@@ -374,7 +641,7 @@ class InstallTests(unittest.TestCase):
                 raise RuntimeError("injected strict resolution failure")
             return real_stage(*args, **kwargs)
 
-        with patch("scripts.install._stage_link", side_effect=fail_second):
+        with patch("scripts.install._prepare_ready_link", side_effect=fail_second):
             result = install(COLLECTION, self.destination)
 
         self.assertTrue(
