@@ -12,6 +12,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 try:
+    from scripts.adapt import (
+        ADAPTER_REGISTRY,
+        adapt_description,
+        adapt_text,
+        is_adapted_resource,
+    )
     from scripts.common import (
         SAFE_SKILL_NAME,
         Manifest,
@@ -22,6 +28,12 @@ try:
         render_skill_document,
     )
 except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
+    from adapt import (  # type: ignore[no-redef]
+        ADAPTER_REGISTRY,
+        adapt_description,
+        adapt_text,
+        is_adapted_resource,
+    )
     from common import (  # type: ignore[no-redef]
         SAFE_SKILL_NAME,
         Manifest,
@@ -244,7 +256,29 @@ def _validate_sources(repo_root: Path, manifest: Manifest) -> list[_ValidatedSou
     return validated
 
 
-def _copy_resource(path: Path, source_dir: Path, destination_dir: Path) -> None:
+def _adapt_entry_text(
+    entry: SkillEntry, text: str, *, relative_path: str = "SKILL.md"
+) -> str:
+    if entry.source not in ADAPTER_REGISTRY and entry.conversion == "native":
+        # Unit-built native fixtures are intentionally outside the production manifest.
+        return text
+    return adapt_text(
+        entry.source, text, relative_path=relative_path, entry=entry
+    )
+
+
+def _adapt_entry_description(entry: SkillEntry, description: str) -> str:
+    if entry.source not in ADAPTER_REGISTRY and entry.conversion == "native":
+        return description
+    return adapt_description(entry.source, description, entry=entry)
+
+
+def _copy_resource(
+    path: Path,
+    source_dir: Path,
+    destination_dir: Path,
+    entry: SkillEntry,
+) -> None:
     relative = path.relative_to(source_dir)
     destination = destination_dir / relative
     if path.is_symlink():
@@ -254,7 +288,20 @@ def _copy_resource(path: Path, source_dir: Path, destination_dir: Path) -> None:
         destination.mkdir(parents=True, exist_ok=True)
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, destination, follow_symlinks=False)
+        relative_path = relative.as_posix()
+        has_resource_adapter = entry.source in ADAPTER_REGISTRY and is_adapted_resource(
+            entry.source, relative_path
+        )
+        if has_resource_adapter:
+            with path.open("r", encoding="utf-8", newline="") as source_file:
+                content = source_file.read()
+            _write_text_exact(
+                destination,
+                _adapt_entry_text(entry, content, relative_path=relative_path),
+            )
+            shutil.copystat(path, destination, follow_symlinks=False)
+        else:
+            shutil.copy2(path, destination, follow_symlinks=False)
 
 
 def _apply_directory_metadata(
@@ -364,17 +411,26 @@ def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> B
         for source in validated:
             destination = staging_dir / source.entry.output
             destination.mkdir()
-            output_document = replace(source.document, name=source.entry.output)
+            output_document = replace(
+                source.document,
+                name=source.entry.output,
+                description=_adapt_entry_description(
+                    source.entry, source.document.description
+                ),
+                body=_adapt_entry_text(source.entry, source.document.body),
+            )
             _write_text_exact(
                 destination / "SKILL.md", render_skill_document(output_document)
             )
             for resource in source.resources:
-                _copy_resource(resource, source.source_dir, destination)
+                _copy_resource(
+                    resource, source.source_dir, destination, source.entry
+                )
             agents_dir = destination / "agents"
             agents_dir.mkdir(parents=True, exist_ok=True)
             _write_text_exact(
                 agents_dir / "openai.yaml",
-                _metadata(source.entry, source.document.description),
+                _metadata(source.entry, output_document.description),
             )
             _apply_directory_metadata(
                 source.resources, source.source_dir, destination
