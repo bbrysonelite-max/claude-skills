@@ -88,6 +88,39 @@ class SkillValidationTests(unittest.TestCase):
     def test_collection_validation_accepts_explicit_exclusions(self):
         self.assertIn("exclude", inspect.signature(validate_collection).parameters)
 
+    def test_collection_report_preserves_legacy_positional_argument_mapping(self):
+        report = CollectionReport(
+            self.root,
+            "2026-07-13",
+            (),
+            (),
+            (),
+            (),
+            0,
+            True,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            (),
+            (),
+            (),
+            None,
+            False,
+            7,
+            "legacy-fingerprint",
+            ("legacy-regression",),
+            ("legacy-injection",),
+        )
+
+        self.assertEqual(7, report.approved_existing_count)
+        self.assertEqual("legacy-fingerprint", report.structural_fingerprint)
+        self.assertEqual(("legacy-regression",), report.regression_results)
+        self.assertEqual(("legacy-injection",), report.injected_defect_results)
+        self.assertEqual((), report.excluded)
+
     def test_validation_records_are_structured_and_immutable(self):
         syntax = SyntaxValidation("python", "python3", ("sample.py",), ())
         official = OfficialValidation("sample", True, "validated")
@@ -686,6 +719,42 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertFalse(any("missing output" in error for error in report.errors))
         self.assertEqual((), report.official_results)
 
+    def test_source_only_api_rejects_all_installed_only_inputs(self):
+        installed = self.repo / "installed"
+        installed.mkdir()
+        cases = (
+            ("installed", {"installed": installed}),
+            (
+                "unsafe exclusion",
+                {"installed": installed, "exclude": ("../unsafe",)},
+            ),
+            (
+                "approved and excluded conflict",
+                {
+                    "installed": installed,
+                    "approved_existing": ("last30days",),
+                    "exclude": ("last30days",),
+                },
+            ),
+        )
+
+        for label, options in cases:
+            with self.subTest(label=label):
+                report = validate_collection(
+                    REPOSITORY_ROOT,
+                    source_only=True,
+                    **options,
+                )
+                self.assertFalse(report.ok)
+                self.assertTrue(
+                    any(
+                        "source-only validation cannot be combined"
+                        in error
+                        for error in report.errors
+                    ),
+                    report.errors,
+                )
+
     def test_installed_validation_requires_links_to_generated_names(self):
         output = self.make_source_and_output()
         installed = self.repo / "installed"
@@ -1137,6 +1206,54 @@ class CliTests(unittest.TestCase):
         self.assertIn("--source-only", stderr.getvalue())
         self.assertIn("--check", stderr.getvalue())
         validator.assert_not_called()
+
+    def test_source_only_cli_rejects_all_installed_only_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            installed = Path(directory) / "installed"
+            cases = (
+                ("installed", ["--installed", str(installed)]),
+                (
+                    "unsafe exclusion",
+                    [
+                        "--installed",
+                        str(installed),
+                        "--exclude",
+                        "../unsafe",
+                    ],
+                ),
+                (
+                    "approved and excluded conflict",
+                    [
+                        "--installed",
+                        str(installed),
+                        "--approved-existing",
+                        "last30days",
+                        "--exclude",
+                        "last30days",
+                    ],
+                ),
+            )
+
+            for label, options in cases:
+                with self.subTest(label=label):
+                    stderr = io.StringIO()
+                    with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+                        try:
+                            exit_code = main(
+                                [
+                                    "--repo",
+                                    str(REPOSITORY_ROOT),
+                                    "--source-only",
+                                    *options,
+                                ]
+                            )
+                        except SystemExit as error:
+                            exit_code = error.code
+                    self.assertEqual(2, exit_code)
+                    self.assertIn(
+                        "--source-only cannot be combined",
+                        stderr.getvalue(),
+                    )
 
     def test_json_cli_returns_nonzero_and_structured_output_on_errors(self):
         report = CollectionReport.empty(Path("/tmp/repo"), errors=("broken",))

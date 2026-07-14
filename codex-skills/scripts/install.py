@@ -46,10 +46,10 @@ class InstallResult:
     planned_updated: tuple[str, ...] = ()
     unchanged: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
-    excluded: tuple[str, ...] = ()
     collisions: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:

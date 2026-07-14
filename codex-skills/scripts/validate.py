@@ -233,10 +233,10 @@ class CollectionReport:
     installed_count: int | None
     source_only: bool
     approved_existing_count: int | None = None
-    excluded: tuple[str, ...] = ()
     structural_fingerprint: str = ""
     regression_results: tuple[RegressionValidation, ...] = ()
     injected_defect_results: tuple[InjectedDefectValidation, ...] = ()
+    excluded: tuple[str, ...] = ()
 
     @classmethod
     def empty(
@@ -1662,7 +1662,21 @@ def validate_collection(
     root = Path(repo_root).expanduser().resolve(strict=False)
     errors: list[str] = []
     warnings: list[str] = []
-    if exclude and installed is None:
+    installed_only_inputs = tuple(
+        name
+        for name, present in (
+            ("installed", installed is not None),
+            ("approved-existing", bool(approved_existing)),
+            ("exclude", bool(exclude)),
+        )
+        if present
+    )
+    if source_only and installed_only_inputs:
+        errors.append(
+            "source-only validation cannot be combined with installed-only inputs: "
+            + ", ".join(installed_only_inputs)
+        )
+    elif exclude and installed is None:
         errors.append("excluded skill names require an installed skill root")
     if structural_only and collect_evidence:
         errors.append(
@@ -2117,6 +2131,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.source_only and args.check:
         parser.error("--source-only cannot be combined with --check")
+    if args.source_only and (
+        args.installed is not None or args.approved_existing or args.exclude
+    ):
+        parser.error(
+            "--source-only cannot be combined with --installed, "
+            "--approved-existing, or --exclude"
+        )
     if args.test_child and (args.source_only or args.check):
         parser.error("--test-child cannot be combined with --source-only or --check")
     if args.approved_existing and args.installed is None:

@@ -59,6 +59,24 @@ class InstallTests(unittest.TestCase):
     def test_install_accepts_explicit_exclusions(self):
         self.assertIn("exclude", inspect.signature(install).parameters)
 
+    def test_result_preserves_legacy_positional_argument_mapping(self):
+        result = InstallResult(
+            ("created",),
+            ("updated",),
+            ("planned-created",),
+            ("planned-updated",),
+            ("unchanged",),
+            ("skipped",),
+            ("collision",),
+            ("error",),
+            ("warning",),
+        )
+
+        self.assertEqual(("collision",), result.collisions)
+        self.assertEqual(("error",), result.errors)
+        self.assertEqual(("warning",), result.warnings)
+        self.assertEqual((), result.excluded)
+
     def test_result_is_structured_immutable_and_serializable(self):
         result = InstallResult(
             created=("sample",),
