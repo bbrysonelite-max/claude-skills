@@ -8,8 +8,16 @@ Modes:
 
 The live folder ~/.claude/skills is the source of truth. The dump (~/Desktop/skills:dump) and
 ~/Desktop/skills-archive-* are NOT live. IGNORE = intentional non-skill folders the index says to keep.
+
+SYNC GATE: the shelf is a git work tree backed by the mirror repo, and skills get authored on OTHER
+machines. A shelf that is BEHIND origin/main is a stale shelf — auditing it reports a skill count that
+is a lie, and indexing it silently omits skills that exist. (2026-07-13: `page-rethink`, authored on
+another box, was absent locally; the audit called the shelf clean and the index was written one skill
+short.) So every audit/diff-index fetches and refuses to certify a shelf that is behind.
+Being AHEAD is normal (new local skills not yet backed up) and is not an error.
+Set SKILLS_NO_FETCH=1 to skip the network call (offline); the behind-check still runs on cached refs.
 """
-import os, sys, re
+import os, sys, re, subprocess
 
 SK = os.environ.get("SKILLS_DIR", os.path.expanduser("~/.claude/skills"))
 INDEX = os.environ.get("SKILLS_INDEX", os.path.expanduser("~/Desktop/Truth/SKILLS-INDEX.md"))
@@ -51,6 +59,51 @@ def frontmatter(path):
             fm[key] = val.strip().strip('"')
         i += 1
     return fm
+
+def git(*a, timeout=25):
+    """Run git in the shelf. Returns (rc, stdout). Never raises."""
+    try:
+        p = subprocess.run(("git", "-C", SK) + a, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout.strip()
+    except Exception:
+        return 1, ""
+
+def sync_check():
+    """Is the live shelf current with its mirror? Returns (level, message).
+
+    level: 'ok' | 'info' | 'issue' | 'skip'
+    BEHIND origin/main => 'issue': the shelf is missing skills that exist on another machine.
+    AHEAD only         => 'info': local skills not yet backed up. Normal (and true right after
+                          backup.sh --confirm, which parks the tree on a librarian-sync-* branch).
+    """
+    if git("rev-parse", "--git-dir")[0] != 0:
+        return "skip", "shelf is not a git repo — no mirror to compare against"
+
+    if os.environ.get("SKILLS_NO_FETCH") != "1":
+        rc, _ = git("fetch", "--quiet", "origin", timeout=45)
+        if rc != 0:
+            return "info", "could not reach origin (offline?) — comparing against CACHED refs; a newer skill may exist upstream"
+
+    # Resolve the mirror's default branch; fall back to origin/main.
+    rc, head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    ref = head if rc == 0 and head else "origin/main"
+    if git("rev-parse", "--verify", "--quiet", ref)[0] != 0:
+        return "skip", f"no {ref} to compare against"
+
+    rc, behind = git("rev-list", "--count", f"HEAD..{ref}")
+    rc2, ahead = git("rev-list", "--count", f"{ref}..HEAD")
+    if rc != 0 or rc2 != 0:
+        return "info", f"could not compare HEAD to {ref}"
+    behind, ahead = int(behind or 0), int(ahead or 0)
+
+    if behind:
+        return "issue", (f"SHELF IS STALE — {behind} commit(s) behind {ref}"
+                         + (f" (and {ahead} ahead)" if ahead else "")
+                         + f". Skills authored elsewhere are MISSING locally; this audit and the index "
+                           f"would both undercount. Fix first:  git -C {SK} pull --ff-only")
+    if ahead:
+        return "info", f"{ahead} commit(s) ahead of {ref} — local skills not yet backed up (normal; run backup.sh)"
+    return "ok", f"in sync with {ref}"
 
 def live_skills():
     out = {}
@@ -105,13 +158,18 @@ def main():
                 issues.append(f"stray file (not a skill folder): {f}")
             if os.path.islink(p) and not os.path.exists(p):
                 issues.append(f"dead symlink: {f}")
+        level, msg = sync_check()
         print(f"Live skills dir: {SK}")
-        print(f"Total skill folders: {len(live)}\n== INTEGRITY ==")
+        print(f"Total skill folders: {len(live)}\n== MIRROR SYNC ==")
+        print({"ok": "  ✓ ", "info": "  · ", "issue": "  ✗ ", "skip": "  – "}[level] + msg)
+        print("== INTEGRITY ==")
         for x in issues: print(f"  ✗ {x}")
         if not issues: print("  ✓ clean — 0 integrity issues")
         if ignored: print(f"  (ignored intentional non-skill folders: {', '.join(ignored)})")
-        print(f"\nissues: {len(issues)}")
-        sys.exit(1 if issues else 0)
+        stale_shelf = level == "issue"
+        total = len(issues) + (1 if stale_shelf else 0)
+        print(f"\nissues: {total}" + ("  (1 = stale shelf; the count above is NOT trustworthy)" if stale_shelf else ""))
+        sys.exit(1 if total else 0)
 
     elif mode == "inventory":
         for n, d in live.items():
@@ -123,6 +181,13 @@ def main():
     elif mode == "diff-index":
         if not os.path.isfile(INDEX):
             print(f"INDEX not found: {INDEX}"); sys.exit(1)
+        level, msg = sync_check()
+        if level in ("issue", "info", "skip"):
+            print(f"== MIRROR SYNC ==\n  {'✗' if level == 'issue' else '·'} {msg}")
+            if level == "issue":
+                print("  REFUSING to diff a stale shelf — the index would be written short. Pull, then re-run.")
+                sys.exit(1)
+            print()
         indexed = expand_index_names(open(INDEX, encoding="utf-8", errors="ignore").read()) - IGNORE
         liveset = set(live) - IGNORE
         new = sorted(liveset - indexed)

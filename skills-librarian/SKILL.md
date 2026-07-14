@@ -13,9 +13,16 @@ Keeps the installed skill shelf clean and the index true. The **live** folder
 
 1. **Audit integrity** (read-only):
    `python3 scripts/audit.py`
-   Reports total count + every integrity issue: folders with no `SKILL.md` / no `name:`,
-   `name:`↔folder mismatches, stray non-folder files in the root, and dead symlinks.
-   Exits non-zero if any issue (so it doubles as a gate).
+   First fetches and checks the shelf against its mirror (**MIRROR SYNC**), then reports total count +
+   every integrity issue: folders with no `SKILL.md` / no `name:`, `name:`↔folder mismatches, stray
+   non-folder files in the root, and dead symlinks. Exits non-zero if any issue (so it doubles as a gate).
+   - **A shelf BEHIND `origin/main` is a stale shelf and fails the gate.** Skills get authored on other
+     machines; if the local folder is behind, the audit's count is a lie and the index gets written one or
+     more skills short. (This is not hypothetical — on 2026-07-13 `page-rethink`, authored on another box,
+     was missing locally; the audit called the shelf clean and the index shipped short.) Fix with
+     `git -C ~/.claude/skills pull --ff-only`, then re-run. `diff-index` refuses outright on a stale shelf.
+   - **AHEAD is fine** — local skills not yet backed up (and the normal state right after `backup.sh
+     --confirm` parks the tree on the sync branch). Offline? `SKILLS_NO_FETCH=1` skips the network call.
 2. **Reconcile against the index** (read-only):
    `python3 scripts/audit.py diff-index`
    Lists skills that are live-but-missing from `SKILLS-INDEX.md` (NEW) and index entries
