@@ -1028,6 +1028,7 @@ def _structural_fingerprint(repo_root: Path) -> str:
         codex_root / "scripts" / "adapt.py",
         codex_root / "scripts" / "build.py",
         codex_root / "scripts" / "common.py",
+        codex_root / "scripts" / "legacy_integrity.py",
         codex_root / "scripts" / "validate.py",
     )
     contract: dict[str, tuple[str, int, str]] = {}

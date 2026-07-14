@@ -1477,6 +1477,36 @@ class CliTests(unittest.TestCase):
 
         self.assertNotEqual(old_fingerprint, new_fingerprint)
 
+    def test_check_rejects_legacy_integrity_contract_mutation_after_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            scripts = repo / "codex-skills" / "scripts"
+            scripts.mkdir(parents=True)
+            integrity = scripts / "legacy_integrity.py"
+            integrity.write_text("PIN = 'before'\n", encoding="utf-8")
+            old_fingerprint = _structural_fingerprint(repo)
+            report_path = repo / "codex-skills" / "VALIDATION.md"
+            report_path.write_text(
+                f"- **Structural fingerprint:** `{old_fingerprint}`\n",
+                encoding="utf-8",
+            )
+
+            integrity.write_text("PIN = 'after'\n", encoding="utf-8")
+            new_fingerprint = _structural_fingerprint(repo)
+            report = replace(
+                CollectionReport.empty(repo), structural_fingerprint=new_fingerprint
+            )
+
+            with (
+                patch("scripts.validate.validate_collection", return_value=report),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                exit_code = main(["--repo", str(repo), "--check"])
+
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
+        self.assertEqual(1, exit_code)
+
 
 if __name__ == "__main__":
     unittest.main()
