@@ -92,9 +92,9 @@
       "source": "context-keeper",
       "promoted_from": null,
       "output": "context-keeper",
-      "conversion": "adapted",
-      "dependencies": [],
-      "notes": "Writes Codex sessions while retaining read-only legacy evidence discovery."
+      "conversion": "dependency-required",
+      "dependencies": ["bash", "Codex rollout/session storage"],
+      "notes": "Writes Codex sessions with the bundled Bash helper while retaining read-only legacy evidence discovery."
     },
     {
       "source": "desktop-delivery",
@@ -324,17 +324,17 @@
       "source": "skill-miner",
       "promoted_from": null,
       "output": "skill-miner",
-      "conversion": "adapted",
-      "dependencies": [],
-      "notes": "Targets the Codex skill library and replaces Claude interaction terms."
+      "conversion": "dependency-required",
+      "dependencies": ["Python 3", "Git", "target Git repository", "Codex rollout/session storage"],
+      "notes": "Uses Python and Git against a target repository plus Codex rollout/session storage."
     },
     {
       "source": "skills-librarian",
       "promoted_from": null,
       "output": "skills-librarian",
-      "conversion": "adapted",
-      "dependencies": [],
-      "notes": "Audits Codex skill paths while retaining non-destructive approval rules."
+      "conversion": "dependency-required",
+      "dependencies": ["Python 3", "local ~/.codex/skills root", "local ~/.agents root", "local ~/Desktop/Truth/SKILLS-INDEX.md", "parallel codex-skills manifest repository"],
+      "notes": "Audits the installed Codex skill and agent roots, curated index, and parallel manifest while retaining non-destructive approval rules."
     },
     {
       "source": "the-rebuild",

@@ -9,19 +9,24 @@ Mine recurring routines from Codex history, deduplicate them, and propose only t
 
 ## Codex Runtime
 
-- **Dependencies:** None.
+- **Dependencies:** Python 3; Git; target Git repository; Codex rollout/session storage
+- `Python 3`
+- `Git`
+- `target Git repository`
+- `Codex rollout/session storage`
 - **Execution:** Operate directly in the main Codex agent. Analyze each batch directly; delegation is optional only when the environment permits it.
 - Resolve `SKILL_DIR` from this loaded `SKILL.md` and use a private scratch directory for generated digest files.
 - Never print, log, or expose secret values.
 
 ## Inputs and Preflight
 
-1. Confirm the requested time window or session limit and the number of batches, normally three.
-2. Confirm current Codex rollout JSONL exists under `~/.codex/sessions/`. This global directory is the rollout source, not the assumed location of project snapshots.
-3. Resolve the relevant current repository with `git rev-parse --show-toplevel`. If `<repo-root>/.codex/sessions` exists, use it as the project-local context snapshot root.
-4. When the user requests cross-project mining, resolve each approved project root and add its existing `.codex/sessions` directory separately.
-5. Read `BACKLOG.md`, `REFERENCE.md`, the installed `~/.codex/skills` names, and the parallel collection manifest when available.
-6. Treat every rollout, snapshot, installed skill, and backlog entry as read-only evidence. Do not modify session history or installed skills.
+1. Confirm `python3` and `git` are available, resolve the target Git repository, and verify the requested Codex rollout/session storage paths are readable. If any mandatory dependency is unavailable, stop without changing the backlog and report the missing command, repository, or storage path.
+2. Confirm the requested time window or session limit and the number of batches, normally three.
+3. Confirm current Codex rollout JSONL exists under `~/.codex/sessions/`. This global directory is the rollout source, not the assumed location of project snapshots.
+4. Resolve the relevant current repository with `git rev-parse --show-toplevel`. If `<repo-root>/.codex/sessions` exists, use it as the project-local context snapshot root.
+5. When the user requests cross-project mining, resolve each approved project root and add its existing `.codex/sessions` directory separately.
+6. Read `BACKLOG.md`, `REFERENCE.md`, the installed `~/.codex/skills` names, and the parallel collection manifest when available.
+7. Treat every rollout, snapshot, installed skill, and backlog entry as read-only evidence. Do not modify session history or installed skills.
 
 ## Procedure
 

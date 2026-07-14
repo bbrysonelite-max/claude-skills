@@ -943,13 +943,13 @@ class CollectionValidationTests(unittest.TestCase):
 
         self.assertEqual(58, report.skill_count)
         self.assertEqual(
-            (("adapted", 12), ("dependency-required", 40), ("native", 6)),
+            (("adapted", 9), ("dependency-required", 43), ("native", 6)),
             report.class_counts,
         )
         self.assertEqual(52, report.runtime_count)
         self.assertEqual(6, report.native_runtime_absent_count)
-        self.assertEqual(40, report.dependency_preflight_count)
-        self.assertEqual(40, report.dependency_secret_count)
+        self.assertEqual(43, report.dependency_preflight_count)
+        self.assertEqual(43, report.dependency_secret_count)
         self.assertEqual((), report.errors)
 
     def test_report_uses_observed_counts_and_lists_all_dependency_skills(self):
@@ -963,11 +963,18 @@ class CollectionValidationTests(unittest.TestCase):
 
         self.assertIn("58 total", text)
         self.assertIn("6 native", text)
-        self.assertIn("12 adapted", text)
-        self.assertIn("40 dependency-required", text)
+        self.assertIn("9 adapted", text)
+        self.assertIn("43 dependency-required", text)
         self.assertIn("| `agent-reach` |", text)
+        self.assertIn("| `context-keeper` |", text)
+        self.assertIn("| `skill-miner` |", text)
+        self.assertIn("| `skills-librarian` |", text)
         self.assertIn("| `whitelabel-radar` |", text)
-        self.assertEqual(40, len(report.dependency_statuses))
+        self.assertEqual(43, len(report.dependency_statuses))
+        immediate = text.split("## Dependency-Gated Skills", 1)[0]
+        self.assertNotIn("`context-keeper`", immediate)
+        self.assertNotIn("`skill-miner`", immediate)
+        self.assertNotIn("`skills-librarian`", immediate)
         self.assertIn("No live external workflows", text)
 
     def test_report_lists_exact_per_dependency_probe_statuses(self):

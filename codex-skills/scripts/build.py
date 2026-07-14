@@ -9,6 +9,7 @@ import stat
 import sys
 import tempfile
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from pathlib import Path
 
 try:
@@ -129,6 +130,43 @@ class BuildResult:
 
 
 @dataclass(frozen=True)
+class TreeEntry:
+    kind: str
+    mode: int
+    payload: str = ""
+
+
+@dataclass(frozen=True)
+class BuildCheckResult:
+    output_dir: Path
+    missing_paths: tuple[str, ...] = ()
+    extra_paths: tuple[str, ...] = ()
+    changed_paths: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return not (
+            self.errors
+            or self.missing_paths
+            or self.extra_paths
+            or self.changed_paths
+        )
+
+    @property
+    def diagnostics(self) -> tuple[str, ...]:
+        diagnostics = list(self.errors)
+        for label, paths in (
+            ("missing paths", self.missing_paths),
+            ("extra paths", self.extra_paths),
+            ("changed paths", self.changed_paths),
+        ):
+            if paths:
+                diagnostics.append(f"{label}: {', '.join(paths)}")
+        return tuple(diagnostics)
+
+
+@dataclass(frozen=True)
 class _ValidatedSource:
     entry: SkillEntry
     source_dir: Path
@@ -170,12 +208,12 @@ def _validate_output_path(
             raise ValueError(f"unsafe output path overlaps protected input: {output_dir}")
     if resolved_output.exists() and not resolved_output.is_dir():
         raise ValueError(f"unsafe output path is not a directory: {output_dir}")
-    if resolved_output.is_dir() and not is_canonical:
+    if resolved_output.is_dir():
         contents = list(resolved_output.iterdir())
         marker = resolved_output / GENERATED_MARKER
         is_owned = marker.is_file() and not marker.is_symlink()
         if contents and not is_owned:
-            raise ValueError(f"external output is not builder-owned: {output_dir}")
+            raise ValueError(f"output is not builder-owned: {output_dir}")
     return resolved_output
 
 
@@ -751,26 +789,110 @@ def _replace_output(staging_dir: Path, output_dir: Path) -> tuple[str, ...]:
     return ()
 
 
+def _protected_build_paths(
+    repo_root: Path,
+    manifest: Manifest,
+    sources: list[_ValidatedSource],
+) -> list[Path]:
+    protected_paths = [source.source_dir for source in sources]
+    protected_paths.extend(
+        (
+            (repo_root / ".agents-backup").resolve(strict=False),
+            (repo_root / "codex-skills" / "overrides").resolve(strict=False),
+            (repo_root / "codex-skills" / "promoted").resolve(strict=False),
+        )
+    )
+    for entry in manifest.promoted:
+        if entry.promoted_from is None:
+            raise ValueError("promoted entry is missing provenance")
+        provenance = (repo_root / entry.promoted_from).resolve(strict=False)
+        if not provenance.is_relative_to(repo_root):
+            raise ValueError(f"unsafe promoted provenance: {entry.promoted_from!r}")
+        protected_paths.append(provenance)
+    return protected_paths
+
+
+def _snapshot_tree(root: Path) -> dict[str, TreeEntry]:
+    snapshot: dict[str, TreeEntry] = {}
+    for path in sorted(
+        root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()
+    ):
+        relative = path.relative_to(root).as_posix()
+        metadata = path.lstat()
+        mode = stat.S_IMODE(metadata.st_mode)
+        if stat.S_ISLNK(metadata.st_mode):
+            snapshot[relative] = TreeEntry("symlink", mode, os.readlink(path))
+        elif stat.S_ISDIR(metadata.st_mode):
+            snapshot[relative] = TreeEntry("directory", mode)
+        elif stat.S_ISREG(metadata.st_mode):
+            snapshot[relative] = TreeEntry(
+                "file", mode, sha256(path.read_bytes()).hexdigest()
+            )
+        else:
+            raise ValueError(f"unsupported generated output entry: {path}")
+    return snapshot
+
+
+def compare_generated_trees(
+    expected: dict[str, TreeEntry], actual: dict[str, TreeEntry]
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Return deterministic missing, extra, and changed path sets."""
+    expected_paths = set(expected)
+    actual_paths = set(actual)
+    missing = tuple(sorted(expected_paths - actual_paths))
+    extra = tuple(sorted(actual_paths - expected_paths))
+    changed = tuple(
+        sorted(
+            path
+            for path in expected_paths & actual_paths
+            if expected[path] != actual[path]
+        )
+    )
+    return missing, extra, changed
+
+
+def check_collection(
+    repo_root: Path, manifest: Manifest, output_dir: Path
+) -> BuildCheckResult:
+    """Compare canonical output with a temporary deterministic build without mutating it."""
+    resolved_root = Path(repo_root).expanduser().resolve(strict=True)
+    validated = _validate_sources(resolved_root, manifest)
+    protected_paths = _protected_build_paths(resolved_root, manifest, validated)
+    resolved_output = _validate_output_path(
+        resolved_root, protected_paths, Path(output_dir)
+    )
+    if not resolved_output.exists():
+        return BuildCheckResult(
+            output_dir=resolved_output,
+            errors=(f"generated output is missing: {resolved_output}",),
+        )
+    marker = resolved_output / GENERATED_MARKER
+    if not marker.is_file() or marker.is_symlink():
+        return BuildCheckResult(
+            output_dir=resolved_output,
+            errors=(f"generated output is not builder-owned: {resolved_output}",),
+        )
+
+    with tempfile.TemporaryDirectory(prefix="codex-skills-build-check-") as temporary:
+        expected_output = Path(temporary) / "skills"
+        build_collection(resolved_root, manifest, expected_output)
+        expected = _snapshot_tree(expected_output)
+        actual = _snapshot_tree(resolved_output)
+    missing, extra, changed = compare_generated_trees(expected, actual)
+    return BuildCheckResult(
+        output_dir=resolved_output,
+        missing_paths=missing,
+        extra_paths=extra,
+        changed_paths=changed,
+    )
+
+
 def build_collection(repo_root: Path, manifest: Manifest, output_dir: Path) -> BuildResult:
     """Build normalized Codex skills from source and promoted inputs."""
     resolved_root = Path(repo_root).expanduser().resolve(strict=True)
     validated = _validate_sources(resolved_root, manifest)
     overrides = _validate_overrides(resolved_root, manifest, validated)
-    protected_paths = [source.source_dir for source in validated]
-    protected_paths.append((resolved_root / ".agents-backup").resolve(strict=False))
-    protected_paths.append(
-        (resolved_root / "codex-skills" / "overrides").resolve(strict=False)
-    )
-    protected_paths.append(
-        (resolved_root / "codex-skills" / "promoted").resolve(strict=False)
-    )
-    for entry in manifest.promoted:
-        if entry.promoted_from is None:
-            raise ValueError("promoted entry is missing provenance")
-        provenance = (resolved_root / entry.promoted_from).resolve(strict=False)
-        if not provenance.is_relative_to(resolved_root):
-            raise ValueError(f"unsafe promoted provenance: {entry.promoted_from!r}")
-        protected_paths.append(provenance)
+    protected_paths = _protected_build_paths(resolved_root, manifest, validated)
     resolved_output = _validate_output_path(
         resolved_root,
         protected_paths,
@@ -871,6 +993,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build normalized Codex skill copies.")
     parser.add_argument("--repo", type=Path, default=default_repo)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the generated output is owned and matches a deterministic build",
+    )
     args = parser.parse_args(argv)
 
     repo_root = args.repo.expanduser().resolve(strict=True)
@@ -878,6 +1005,18 @@ def main(argv: list[str] | None = None) -> int:
     collection = load_manifest(
         repo_root / "codex-skills" / "manifest.yaml", repo_root=repo_root
     )
+    if args.check:
+        try:
+            check_result = check_collection(repo_root, collection, output_dir)
+        except (OSError, RuntimeError, ValueError, KeyError) as error:
+            print(f"Build check failed: {error}", file=sys.stderr)
+            return 1
+        if not check_result.ok:
+            for diagnostic in check_result.diagnostics:
+                print(f"Build check failed: {diagnostic}", file=sys.stderr)
+            return 1
+        print(f"Build check passed for {check_result.output_dir}")
+        return 0
     result = build_collection(repo_root, collection, output_dir)
     print(f"Built {result.count} skills in {result.output_dir}")
     for warning in result.warnings:

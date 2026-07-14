@@ -62,7 +62,9 @@ _ADAPTERS = {
         "dependency-required",
         ("gcloud CLI", "Google Cloud user and ADC access", "cloud-sql-proxy"),
     ),
-    "context-keeper": AdapterSpec("adapted", ()),
+    "context-keeper": AdapterSpec(
+        "dependency-required", ("bash", "Codex rollout/session storage")
+    ),
     "desktop-delivery": AdapterSpec("native", ()),
     "doc-keeper": AdapterSpec(
         "dependency-required",
@@ -175,8 +177,25 @@ _ADAPTERS = {
         "dependency-required",
         ("source APIs and credentials", "Python script dependencies"),
     ),
-    "skill-miner": AdapterSpec("adapted", ()),
-    "skills-librarian": AdapterSpec("adapted", ()),
+    "skill-miner": AdapterSpec(
+        "dependency-required",
+        (
+            "Python 3",
+            "Git",
+            "target Git repository",
+            "Codex rollout/session storage",
+        ),
+    ),
+    "skills-librarian": AdapterSpec(
+        "dependency-required",
+        (
+            "Python 3",
+            "local ~/.codex/skills root",
+            "local ~/.agents root",
+            "local ~/Desktop/Truth/SKILLS-INDEX.md",
+            "parallel codex-skills manifest repository",
+        ),
+    ),
     "the-rebuild": AdapterSpec("adapted", ()),
     "tiger-doc-keeper": AdapterSpec(
         "dependency-required",

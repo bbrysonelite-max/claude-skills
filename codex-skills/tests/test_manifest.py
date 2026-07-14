@@ -4,6 +4,7 @@ import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
+from scripts.adapt import ADAPTER_REGISTRY
 from scripts.common import (
     Manifest,
     SkillEntry,
@@ -139,6 +140,47 @@ class ManifestTests(unittest.TestCase):
             ("Node.js", "Google Chrome"),
             entries["tiger-whitepaper"].dependencies,
         )
+
+    def test_local_runtime_skills_are_dependency_required_with_exact_requirements(self):
+        manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
+        entries = {entry.output: entry for entry in manifest.entries}
+        expected = {
+            "context-keeper": ("bash", "Codex rollout/session storage"),
+            "skill-miner": (
+                "Python 3",
+                "Git",
+                "target Git repository",
+                "Codex rollout/session storage",
+            ),
+            "skills-librarian": (
+                "Python 3",
+                "local ~/.codex/skills root",
+                "local ~/.agents root",
+                "local ~/Desktop/Truth/SKILLS-INDEX.md",
+                "parallel codex-skills manifest repository",
+            ),
+        }
+
+        self.assertEqual(
+            {"adapted": 9, "dependency-required": 43, "native": 6},
+            {
+                conversion: sum(
+                    entry.conversion == conversion for entry in manifest.entries
+                )
+                for conversion in ALLOWED_CONVERSIONS
+            },
+        )
+        for name, dependencies in expected.items():
+            with self.subTest(name=name):
+                self.assertEqual("dependency-required", entries[name].conversion)
+                self.assertEqual(dependencies, entries[name].dependencies)
+                self.assertEqual(
+                    (entries[name].conversion, entries[name].dependencies),
+                    (
+                        ADAPTER_REGISTRY[name].conversion,
+                        ADAPTER_REGISTRY[name].dependencies,
+                    ),
+                )
 
     def test_manifest_models_are_frozen(self):
         entry = SkillEntry(None, None, "sample", "native", (), "note")

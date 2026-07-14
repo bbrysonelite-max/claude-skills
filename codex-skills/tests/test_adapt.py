@@ -516,7 +516,7 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
 
             self.assertEqual(58, result.count)
             self.assertEqual(
-                Counter({"dependency-required": 40, "native": 6, "adapted": 5}),
+                Counter({"dependency-required": 43, "native": 6, "adapted": 2}),
                 Counter(entry.conversion for entry in manifest.sources),
             )
             self.assertEqual(

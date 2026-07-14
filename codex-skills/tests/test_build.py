@@ -14,6 +14,7 @@ from scripts.build import (
     GENERATED_ADAPTER_RESOURCES,
     BuildResult,
     build_collection,
+    check_collection,
     main,
 )
 from scripts.common import (
@@ -309,6 +310,19 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(canonical.resolve(), result.output_dir)
         self.assertTrue((canonical / ".codex-skills-generated").is_file())
 
+    def test_rejects_unowned_nonempty_canonical_output_without_changing_contents(self):
+        self.make_skill()
+        canonical = self.repo_root / "codex-skills" / "skills"
+        canonical.mkdir(parents=True)
+        sentinel = canonical / "sentinel.txt"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        before = self.snapshot(canonical)
+
+        with self.assertRaisesRegex(ValueError, "not builder-owned"):
+            build_collection(self.repo_root, manifest(entry()), canonical)
+
+        self.assertEqual(before, self.snapshot(canonical))
+
     def test_rejects_git_and_docs_outputs_without_deleting_contents(self):
         self.make_skill()
         for relative in (".git", "docs"):
@@ -430,6 +444,114 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(0, exit_code)
         self.assertIn("Built 1 skills", stdout.getvalue())
         self.assertIn("orphan backup retained", stderr.getvalue())
+
+    def test_check_api_accepts_clean_owned_canonical_output_without_mutation(self):
+        self.make_skill()
+        canonical = self.repo_root / "codex-skills" / "skills"
+        canonical.parent.mkdir()
+        collection = manifest(entry())
+        build_collection(self.repo_root, collection, canonical)
+        before = self.snapshot(canonical, follow_symlinks=False)
+
+        result = check_collection(self.repo_root, collection, canonical)
+
+        self.assertTrue(result.ok)
+        self.assertEqual((), result.diagnostics)
+        self.assertEqual(before, self.snapshot(canonical, follow_symlinks=False))
+
+    def test_check_api_reports_drifted_paths_without_mutation(self):
+        self.make_skill()
+        canonical = self.repo_root / "codex-skills" / "skills"
+        canonical.parent.mkdir()
+        collection = manifest(entry())
+        build_collection(self.repo_root, collection, canonical)
+        skill_path = canonical / "sample" / "SKILL.md"
+        skill_path.write_text("drifted\n", encoding="utf-8")
+        before = self.snapshot(canonical, follow_symlinks=False)
+
+        result = check_collection(self.repo_root, collection, canonical)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(("sample/SKILL.md",), result.changed_paths)
+        self.assertIn("changed paths: sample/SKILL.md", result.diagnostics)
+        self.assertEqual(before, self.snapshot(canonical, follow_symlinks=False))
+
+    def test_check_api_reports_missing_output_without_creating_it(self):
+        self.make_skill()
+        canonical = self.repo_root / "codex-skills" / "skills"
+        canonical.parent.mkdir()
+
+        result = check_collection(self.repo_root, manifest(entry()), canonical)
+
+        self.assertFalse(result.ok)
+        self.assertIn("generated output is missing", result.diagnostics[0])
+        self.assertFalse(canonical.exists())
+
+    def test_check_api_rejects_unowned_canonical_without_mutation(self):
+        self.make_skill()
+        canonical = self.repo_root / "codex-skills" / "skills"
+        canonical.mkdir(parents=True)
+        sentinel = canonical / "sentinel.txt"
+        sentinel.write_text("keep\n", encoding="utf-8")
+        before = self.snapshot(canonical, follow_symlinks=False)
+
+        with self.assertRaisesRegex(ValueError, "not builder-owned"):
+            check_collection(self.repo_root, manifest(entry()), canonical)
+
+        self.assertEqual(before, self.snapshot(canonical, follow_symlinks=False))
+
+    def test_check_cli_reports_clean_and_drifted_output_without_mutation(self):
+        self.make_skill()
+        codex_root = self.repo_root / "codex-skills"
+        canonical = codex_root / "skills"
+        codex_root.mkdir()
+        (codex_root / "manifest.yaml").write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {
+                            "source": "sample",
+                            "promoted_from": None,
+                            "output": "sample",
+                            "conversion": "native",
+                            "dependencies": [],
+                            "notes": "Works directly in Codex.",
+                        }
+                    ],
+                    "promoted": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        collection = manifest(entry())
+        build_collection(self.repo_root, collection, canonical)
+        clean_before = self.snapshot(canonical, follow_symlinks=False)
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            clean_exit = main(["--repo", str(self.repo_root), "--check"])
+
+        self.assertEqual(0, clean_exit)
+        self.assertIn("Build check passed", stdout.getvalue())
+        self.assertEqual("", stderr.getvalue())
+        self.assertEqual(clean_before, self.snapshot(canonical, follow_symlinks=False))
+
+        (canonical / "sample" / "SKILL.md").write_text(
+            "drifted\n", encoding="utf-8"
+        )
+        drifted_before = self.snapshot(canonical, follow_symlinks=False)
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            drifted_exit = main(["--repo", str(self.repo_root), "--check"])
+
+        self.assertEqual(1, drifted_exit)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("changed paths: sample/SKILL.md", stderr.getvalue())
+        self.assertEqual(
+            drifted_before, self.snapshot(canonical, follow_symlinks=False)
+        )
 
     def test_display_name_comes_from_hyphenated_output_name(self):
         self.make_skill("source-name", "A sufficiently useful source description.")
@@ -795,10 +917,13 @@ class BuildOverrideTests(unittest.TestCase):
             f'---\nname: "{document_name}"\ndescription: "{description}"\n---\n\n'
             f"# {document_name}\n\n"
             "## Codex Runtime\n\n"
-            "- **Dependencies:** None.\n"
+            "- **Dependencies:** bash; Codex rollout/session storage\n"
+            "- `bash`\n"
+            "- `Codex rollout/session storage`\n"
             "- **Execution:** Operate directly in the main Codex agent.\n"
             "- Never print, log, or expose secret values.\n\n"
-            "## Inputs and Preflight\n\n1. Confirm the target.\n\n"
+            "## Inputs and Preflight\n\n1. Confirm the target. If any mandatory "
+            "dependency is unavailable, stop and report it.\n\n"
             "## Procedure\n\n1. Inspect evidence.\n2. Complete the workflow.\n\n"
             "## Safety and Errors\n\nStop and report blocked work.\n\n"
             f"## Output Contract\n\n{body}\n",
@@ -811,8 +936,8 @@ class BuildOverrideTests(unittest.TestCase):
             source="context-keeper",
             promoted_from=None,
             output="context-keeper",
-            conversion="adapted",
-            dependencies=(),
+            conversion="dependency-required",
+            dependencies=("bash", "Codex rollout/session storage"),
             notes="Writes Codex sessions.",
         )
 
@@ -907,7 +1032,7 @@ class BuildOverrideTests(unittest.TestCase):
         path = override / "SKILL.md"
         path.write_text(
             path.read_text(encoding="utf-8").replace(
-                "- **Dependencies:** None.",
+                "- **Dependencies:** bash; Codex rollout/session storage",
                 "- **Dependencies:** invented dependency",
             ),
             encoding="utf-8",
@@ -1105,7 +1230,7 @@ class RealOverrideContractTests(unittest.TestCase):
         for text in (
             'SKILLS_DIR="$HOME/.codex/skills"',
             "SKILLS_INDEX=",
-            "AGENTS_SRC=",
+            'AGENTS_SRC="$HOME/.agents"',
             "codex-skills/manifest.yaml",
             "quarantine",
             "per-item approval",
@@ -1113,6 +1238,37 @@ class RealOverrideContractTests(unittest.TestCase):
         ):
             self.assertIn(text, body)
         self.assertNotIn("AGENTS_DIR=", body)
+        self.assertNotIn('AGENTS_SRC="$HOME/.codex/agents"', body)
+
+    def test_local_runtime_overrides_have_exact_dependency_and_blocked_contracts(self):
+        expected = {
+            "context-keeper": ("bash", "Codex rollout/session storage"),
+            "skill-miner": (
+                "Python 3",
+                "Git",
+                "target Git repository",
+                "Codex rollout/session storage",
+            ),
+            "skills-librarian": (
+                "Python 3",
+                "local ~/.codex/skills root",
+                "local ~/.agents root",
+                "local ~/Desktop/Truth/SKILLS-INDEX.md",
+                "parallel codex-skills manifest repository",
+            ),
+        }
+        documents = self.documents()
+
+        for name, dependencies in expected.items():
+            body = documents[name].body
+            with self.subTest(name=name):
+                self.assertIn(
+                    f"- **Dependencies:** {'; '.join(dependencies)}", body
+                )
+                for dependency in dependencies:
+                    self.assertIn(f"- `{dependency}`", body)
+                self.assertIn("If any mandatory dependency is unavailable", body)
+                self.assertIn("Never print, log, or expose secret values.", body)
 
     def test_page_rethink_requires_codex_browser_and_both_viewports(self):
         body = self.documents()["page-rethink"].body
@@ -1170,6 +1326,19 @@ class RealOverrideContractTests(unittest.TestCase):
             self.assertTrue((output / "skill-miner/REFERENCE.md").is_file())
             self.assertTrue((output / "skills-librarian/scripts/audit.py").is_file())
             self.assertTrue((output / "skills-librarian/scripts/backup.sh").is_file())
+            librarian = (output / "skills-librarian/SKILL.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn('AGENTS_SRC="$HOME/.agents"', librarian)
+            self.assertNotIn('AGENTS_SRC="$HOME/.codex/agents"', librarian)
+
+    def test_canonical_skills_librarian_uses_exact_agents_source(self):
+        librarian = (
+            CODEX_SKILLS_ROOT / "skills" / "skills-librarian" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('AGENTS_SRC="$HOME/.agents"', librarian)
+        self.assertNotIn('AGENTS_SRC="$HOME/.codex/agents"', librarian)
 
 
 if __name__ == "__main__":

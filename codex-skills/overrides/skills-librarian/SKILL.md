@@ -9,17 +9,23 @@ Audit the installed Codex skill shelf, reconcile its index and parallel manifest
 
 ## Codex Runtime
 
-- **Dependencies:** None.
+- **Dependencies:** Python 3; local ~/.codex/skills root; local ~/.agents root; local ~/Desktop/Truth/SKILLS-INDEX.md; parallel codex-skills manifest repository
+- `Python 3`
+- `local ~/.codex/skills root`
+- `local ~/.agents root`
+- `local ~/Desktop/Truth/SKILLS-INDEX.md`
+- `parallel codex-skills manifest repository`
 - **Execution:** Operate directly in the main Codex agent.
 - Resolve `SKILL_DIR` from this loaded `SKILL.md`; the audit script accepts only `SKILLS_DIR` and `SKILLS_INDEX`, while the backup script accepts `SKILLS_DIR` and `AGENTS_SRC`.
 - Never print, log, or expose secret values.
 
 ## Inputs and Preflight
 
-1. Set `SHELF="$HOME/.codex/skills"`, `INDEX="$HOME/Desktop/Truth/SKILLS-INDEX.md"`, and identify the parallel repository containing `codex-skills/manifest.yaml`.
-2. Confirm the shelf and scripts exist. Record whether the shelf is Git-backed before proposing backup operations.
-3. Treat audits, index comparisons, and manifest reads as read-only. Require per-item approval before every rename, metadata edit, quarantine move, index edit, or backup mutation.
-4. Keep dump and archive directories separate from the live shelf. Do not classify intentional support directories as cruft merely because they lack `SKILL.md`.
+1. Confirm `python3` is available. Set `SHELF="$HOME/.codex/skills"`, `AGENTS="$HOME/.agents"`, and `INDEX="$HOME/Desktop/Truth/SKILLS-INDEX.md"`; identify the parallel repository containing `codex-skills/manifest.yaml`.
+2. Confirm the shelf, agent root, curated index, parallel manifest, and copied scripts exist. If any mandatory dependency is unavailable, stop without changing either collection and report the missing command or path.
+3. Record whether the shelf is Git-backed before proposing backup operations.
+4. Treat audits, index comparisons, and manifest reads as read-only. Require per-item approval before every rename, metadata edit, quarantine move, index edit, or backup mutation.
+5. Keep dump and archive directories separate from the live shelf. Do not classify intentional support directories as cruft merely because they lack `SKILL.md`.
 
 ## Procedure
 
@@ -43,7 +49,7 @@ Audit the installed Codex skill shelf, reconcile its index and parallel manifest
 7. Re-run integrity, diff-index, and manifest comparisons. Confirm zero unexplained integrity issues and reconcile live/index counts.
 8. Propose backup separately. The source script can mutate a mirror even before PR creation, so run it only after approval. Pass only inputs it actually accepts:
    ```bash
-   SKILLS_DIR="$HOME/.codex/skills" AGENTS_SRC="$HOME/.codex/agents" "$SKILL_DIR/scripts/backup.sh"
+   SKILLS_DIR="$HOME/.codex/skills" AGENTS_SRC="$HOME/.agents" "$SKILL_DIR/scripts/backup.sh"
    ```
    Use `--confirm` only after the user confirms the exact sync; open a branch and PR, never push the default branch or merge without separate per-PR approval.
 

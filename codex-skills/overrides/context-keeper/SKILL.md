@@ -9,21 +9,24 @@ Write one immutable snapshot for the current working session. Reconcile living d
 
 ## Codex Runtime
 
-- **Dependencies:** None.
+- **Dependencies:** bash; Codex rollout/session storage
+- `bash`
+- `Codex rollout/session storage`
 - **Execution:** Operate directly in the main Codex agent.
 - Resolve `SKILL_DIR` from the directory containing this loaded `SKILL.md`.
 - Never print, log, or expose secret values.
 
 ## Inputs and Preflight
 
-1. Resolve the target repository with `git rev-parse --show-toplevel`; use the current directory only when it is not a Git repository.
-2. Set `SESSION_DIR` to an explicitly supplied `CONTEXT_KEEPER_DIR`, otherwise to `<repo-root>/.codex/sessions`.
-3. Review this session's decisions, discoveries, diffs, commits, test output, deployments, and live checks. Treat unsupported claims as unverified.
-4. Query the next path without writing:
+1. Confirm `bash` is available and the selected Codex rollout/session storage can be created or written without changing an existing snapshot. If any mandatory dependency is unavailable, stop before writing and report the missing command or storage path.
+2. Resolve the target repository with `git rev-parse --show-toplevel`; use the current directory only when it is not a Git repository.
+3. Set `SESSION_DIR` to an explicitly supplied `CONTEXT_KEEPER_DIR`, otherwise to `<repo-root>/.codex/sessions`.
+4. Review this session's decisions, discoveries, diffs, commits, test output, deployments, and live checks. Treat unsupported claims as unverified.
+5. Query the next path without writing:
    ```bash
    CONTEXT_KEEPER_DIR="$SESSION_DIR" bash "$SKILL_DIR/scripts/new-session.sh" --path
    ```
-5. Stop if that path already exists. Never choose an older file to edit.
+6. Stop if that path already exists. Never choose an older file to edit.
 
 ## Procedure
 

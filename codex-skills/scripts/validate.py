@@ -53,8 +53,8 @@ EXPECTED_SKILL_COUNT = 58
 EXPECTED_SOURCE_COUNT = 51
 EXPECTED_PROMOTED_COUNT = 7
 EXPECTED_CLASS_COUNTS = {
-    "adapted": 12,
-    "dependency-required": 40,
+    "adapted": 9,
+    "dependency-required": 43,
     "native": 6,
 }
 EXPECTED_RUNTIME_COUNT = 52
