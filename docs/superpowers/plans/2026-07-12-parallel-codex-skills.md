@@ -555,27 +555,27 @@ Expected: 58 planned links or an explicit collision list; no filesystem changes.
 
 - [ ] **Step 3: Resolve collisions conservatively**
 
-The existing personal `last30days` skill is expected to collide. Compare its real path and content. If it is the same upstream skill or the generated version is demonstrably equivalent, leave the existing installation in place and record it as externally satisfied. Do not replace any other collision without explicit user approval.
+The existing personal `last30days` skill is expected to collide. Compare its real path and content. If it remains Claude-style or otherwise cannot satisfy Codex validation, leave it untouched and record it as an explicit exclusion rather than as approved or managed. Do not replace any collision without explicit user approval.
 
 - [ ] **Step 4: Install non-colliding skills**
 
-Run the installer only after collision handling supports `--skip-existing last30days`, with that skip recorded in JSON output.
+Run the installer only after collision handling supports `--exclude last30days`, with that exclusion recorded separately in JSON output and without inspecting or mutating the excluded directory.
 
-Run: `python3 codex-skills/scripts/install.py --skip-existing last30days --json`
+Run: `python3 codex-skills/scripts/install.py --exclude last30days --json`
 
-Expected: all non-colliding generated skills are linked and existing personal skills remain intact.
+Expected: 57 generated skills are linked, `last30days` is reported as the one exclusion, and all existing personal skills remain intact.
 
 - [ ] **Step 5: Verify personal discovery and link integrity**
 
 Run: `find /Users/brentbryson/.codex/skills -mindepth 1 -maxdepth 1 -type l -exec test -e {} \; -print | sort`
 
-Run: `python3 codex-skills/scripts/validate.py --installed /Users/brentbryson/.codex/skills`
+Run: `python3 codex-skills/scripts/validate.py --check --installed /Users/brentbryson/.codex/skills --exclude last30days`
 
-Expected: every managed link resolves, all 58 names are satisfied by managed or approved existing skills, and unrelated installed skills remain present.
+Expected: all 57 managed links resolve, `last30days` is reported as excluded rather than validated, all 58 generated names are accounted for, and unrelated installed skills remain present.
 
 - [ ] **Step 6: Update the observed validation report and commit**
 
-Record the exact test count, generated skill count, installed link count, approved existing-skill count, dependency-gated count, source-hash verdict, and any environment limitations.
+Record the exact test count, generated skill count, installed link count, approved existing-skill count, excluded count, dependency-gated count, source-hash verdict, and any environment limitations.
 
 ```bash
 git add codex-skills/VALIDATION.md
