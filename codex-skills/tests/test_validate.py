@@ -1163,7 +1163,7 @@ class CollectionValidationTests(unittest.TestCase):
     def test_report_names_explicitly_excluded_installed_skills(self):
         report = replace(
             CollectionReport.empty(self.repo),
-            installed_count=57,
+            installed_count=58,
             approved_existing_count=0,
             excluded=("last30days",),
         )
@@ -1171,6 +1171,22 @@ class CollectionValidationTests(unittest.TestCase):
         text = render_report(report)
 
         self.assertIn("1 excluded (`last30days`)", text)
+        personal = text.split("## Personal Installation", 1)[1].split(
+            "## Limitations", 1
+        )[0]
+        self.assertIn("58 managed links", personal)
+        self.assertIn("1 excluded (`last30days`)", personal)
+        self.assertIn("`last30days` installation was preserved", personal)
+        self.assertNotIn("migration is pending", personal.casefold())
+
+    def test_report_retains_pending_personal_install_language_when_not_inspected(self):
+        text = render_report(CollectionReport.empty(self.repo))
+
+        personal = text.split("## Personal Installation", 1)[1].split(
+            "## Limitations", 1
+        )[0]
+        self.assertIn("migration is pending", personal.casefold())
+        self.assertIn("not inspected", text.casefold())
 
 
 class CliTests(unittest.TestCase):

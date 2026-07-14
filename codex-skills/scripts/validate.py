@@ -2148,15 +2148,27 @@ def render_report(report: CollectionReport) -> str:
             f"`{probe.dependency}` ({probe.status})" for probe in item.probes
         )
         lines.append(f"| `{item.name}` | {dependencies} | {item.status} |")
-    lines.extend(
-        [
-            "",
-            "## Personal Installation",
-            "",
+    lines.extend(["", "## Personal Installation", ""])
+    if report.installed_count is None:
+        lines.append(
             "Personal migration is pending. No personal skill was changed by this "
             "source-sync validation. The established migration command remains "
             "`python3 scripts/install.py --exclude last30days`, preserving the "
-            "personal `last30days` installation.",
+            "personal `last30days` installation."
+        )
+    else:
+        lines.append(
+            f"Personal installation was inspected: {report.installed_count} managed "
+            f"links; {report.approved_existing_count or 0} approved existing "
+            f"directories; {excluded_summary}."
+        )
+        if "last30days" in report.excluded:
+            lines.append(
+                "The personal `last30days` installation was preserved by explicit "
+                "exclusion."
+            )
+    lines.extend(
+        [
             "",
             "## Limitations",
             "",
