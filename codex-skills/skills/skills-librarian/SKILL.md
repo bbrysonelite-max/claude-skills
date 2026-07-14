@@ -16,14 +16,14 @@ Audit the installed Codex skill shelf, reconcile its index and parallel manifest
 - `local ~/Desktop/Truth/SKILLS-INDEX.md`
 - `parallel codex-skills manifest repository`
 - **Execution:** Operate directly in the main Codex agent.
-- Resolve `SKILL_DIR` from this loaded `SKILL.md`; the audit script accepts only `SKILLS_DIR` and `SKILLS_INDEX`, while the backup script accepts `SKILLS_DIR` and `AGENTS_SRC`.
+- Resolve `SKILL_DIR` from this loaded `SKILL.md`. Set `CODEX_SKILLS_REPO` to the Git worktree containing `codex-skills/manifest.yaml`; the audit script also accepts `SKILLS_DIR` and `SKILLS_INDEX`, while the backup script accepts `SKILLS_DIR` and `AGENTS_SRC`.
 - Never print, log, or expose secret values.
 
 ## Inputs and Preflight
 
-1. Confirm `python3` is available. Set `SHELF="$HOME/.codex/skills"`, `AGENTS="$HOME/.agents"`, and `INDEX="$HOME/Desktop/Truth/SKILLS-INDEX.md"`; identify the parallel repository containing `codex-skills/manifest.yaml`.
+1. Confirm `python3` is available. Set `SHELF="$HOME/.codex/skills"`, `AGENTS="$HOME/.agents"`, `INDEX="$HOME/Desktop/Truth/SKILLS-INDEX.md"`, and `CODEX_SKILLS_REPO` to the parallel repository containing `codex-skills/manifest.yaml`.
 2. Confirm the shelf, agent root, curated index, parallel manifest, and copied scripts exist. If any mandatory dependency is unavailable, stop without changing either collection and report the missing command or path.
-3. Record whether the shelf is Git-backed before proposing backup operations.
+3. Confirm `CODEX_SKILLS_REPO` is Git-backed and has an `origin/main` tracking reference. The helper audits the installed shelf but fetches and compares this generated-shelf repository. A repository behind `origin/main` is stale and fails audit/diff-index; ahead is informational. Use `SKILLS_NO_FETCH=1` only when deliberately offline, which still checks cached refs.
 4. Treat audits, index comparisons, and manifest reads as read-only. Require per-item approval before every rename, metadata edit, quarantine move, index edit, or backup mutation.
 5. Keep dump and archive directories separate from the live shelf. Do not classify intentional support directories as cruft merely because they lack `SKILL.md`.
 
@@ -31,19 +31,19 @@ Audit the installed Codex skill shelf, reconcile its index and parallel manifest
 
 1. Run the integrity audit with the script's exact environment input:
    ```bash
-   SKILLS_DIR="$HOME/.codex/skills" python3 "$SKILL_DIR/scripts/audit.py"
+   SKILLS_DIR="$HOME/.codex/skills" CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO" python3 "$SKILL_DIR/scripts/audit.py"
    ```
 2. Compare the live shelf with the curated index:
    ```bash
-   SKILLS_DIR="$HOME/.codex/skills" SKILLS_INDEX="$INDEX" python3 "$SKILL_DIR/scripts/audit.py" diff-index
+   SKILLS_DIR="$HOME/.codex/skills" SKILLS_INDEX="$INDEX" CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO" python3 "$SKILL_DIR/scripts/audit.py" diff-index
    ```
-   Treat grouped-name parsing as approximate and verify every stale result against the actual index.
+   Treat grouped-name parsing as approximate and verify every stale result against the actual index. Never continue an index comparison when the generated shelf is stale against `origin/main`.
 3. Read `codex-skills/manifest.yaml` from the parallel collection. Compare its output names with installed names, distinguish managed links from personal skills, and report manifest outputs that are missing, extra, or broken without changing either collection.
 4. Present integrity issues, index drift, manifest drift, likely duplicates, and business-specific skills. Propose one repair per item and wait for per-item approval.
 5. Apply only approved repairs. Resolve name/folder mismatches as directed. Move cruft to an approved quarantine directory; never delete it. Add intentional support directories to the audit ignore policy only when the index explicitly blesses them.
 6. Regenerate inventory with:
    ```bash
-   SKILLS_DIR="$HOME/.codex/skills" python3 "$SKILL_DIR/scripts/audit.py" inventory
+   SKILLS_DIR="$HOME/.codex/skills" CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO" python3 "$SKILL_DIR/scripts/audit.py" inventory
    ```
    Preserve curated categories; update membership, one-line descriptions, audit date, and count without flattening the index.
 7. Re-run integrity, diff-index, and manifest comparisons. Confirm zero unexplained integrity issues and reconcile live/index counts.

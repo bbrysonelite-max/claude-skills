@@ -107,9 +107,9 @@ class InstallTests(unittest.TestCase):
     def test_installs_all_skills_into_an_empty_destination(self):
         result = install(COLLECTION, self.destination)
 
-        self.assertEqual(58, len(result.created))
+        self.assertEqual(59, len(result.created))
         self.assertEqual((), result.errors)
-        self.assertEqual(58, len(tuple(self.destination.iterdir())))
+        self.assertEqual(59, len(tuple(self.destination.iterdir())))
         for name in result.created:
             path = self.destination / name
             self.assertTrue(path.is_symlink())
@@ -121,8 +121,8 @@ class InstallTests(unittest.TestCase):
 
         second = install(COLLECTION, self.destination)
 
-        self.assertEqual(58, len(first.created))
-        self.assertEqual(58, len(second.unchanged))
+        self.assertEqual(59, len(first.created))
+        self.assertEqual(59, len(second.unchanged))
         self.assertEqual((), second.created)
         self.assertEqual(
             first_links,
@@ -156,7 +156,7 @@ class InstallTests(unittest.TestCase):
             ["personal.txt"],
             [path.name for path in self.destination.iterdir()],
         )
-        self.assertEqual(58, len(tuple(moved.iterdir())))
+        self.assertEqual(59, len(tuple(moved.iterdir())))
         self.assertEqual([], list(moved.glob(".*.codex-install-*")))
 
     def test_skip_plan_rejects_destination_swap_before_open(self):
@@ -169,7 +169,7 @@ class InstallTests(unittest.TestCase):
             self.destination,
             skip_existing=("last30days",),
         )
-        self.assertEqual(57, len(first.created))
+        self.assertEqual(58, len(first.created))
         moved = self.root / "planned-skip-destination"
         real_open = install_module._DestinationHandle.open
 
@@ -202,7 +202,7 @@ class InstallTests(unittest.TestCase):
             expected_document,
             (moved / "last30days" / "SKILL.md").read_bytes(),
         )
-        self.assertEqual(58, len(tuple(moved.iterdir())))
+        self.assertEqual(59, len(tuple(moved.iterdir())))
         self.assertEqual([], list(moved.glob(".*.codex-install-*")))
 
     def test_unchanged_link_replacement_after_open_invalidates_plan(self):
@@ -265,7 +265,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((), result.created)
         self.assertEqual((), result.unchanged)
         self.assertEqual((), result.skipped)
-        self.assertEqual(57, len(result.planned_created))
+        self.assertEqual(58, len(result.planned_created))
         self.assertEqual(replacement, skill.read_bytes())
         self.assertEqual(
             ["last30days"],
@@ -307,7 +307,7 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(result.errors)
         self.assertEqual((), result.created)
         self.assertEqual((), result.skipped)
-        self.assertEqual(57, len(result.planned_created))
+        self.assertEqual(58, len(result.planned_created))
         self.assertEqual(replacement, skill.read_bytes())
         self.assertEqual(
             ["last30days"],
@@ -436,7 +436,7 @@ class InstallTests(unittest.TestCase):
                     self.assertEqual((), result.updated)
                     self.assertEqual((), result.unchanged)
                     self.assertEqual((), result.skipped)
-                    self.assertEqual(57, len(result.planned_created))
+                    self.assertEqual(58, len(result.planned_created))
                     self.assertEqual(
                         ["last30days"],
                         [path.name for path in destination.iterdir()],
@@ -520,7 +520,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(("ground-truth",), result.collisions)
         self.assertEqual((), result.created)
         self.assertEqual((), result.updated)
-        self.assertEqual(57, len(result.planned_created))
+        self.assertEqual(58, len(result.planned_created))
         self.assertEqual("do not replace\n", collision.read_text(encoding="utf-8"))
         self.assertEqual(["ground-truth"], [item.name for item in self.destination.iterdir()])
 
@@ -557,7 +557,7 @@ class InstallTests(unittest.TestCase):
 
         self.assertTrue(dry.ok, dry.errors)
         self.assertEqual(("last30days",), dry.excluded)
-        self.assertEqual(57, len(dry.planned_created))
+        self.assertEqual(58, len(dry.planned_created))
         self.assertEqual((), dry.created)
         self.assertEqual(before.st_ino, existing.lstat().st_ino)
         self.assertEqual(b"invalid but explicitly excluded\n", existing.read_bytes())
@@ -565,9 +565,9 @@ class InstallTests(unittest.TestCase):
         first = install(COLLECTION, self.destination, exclude=("last30days",))
         second = install(COLLECTION, self.destination, exclude=("last30days",))
 
-        self.assertEqual(57, len(first.created))
+        self.assertEqual(58, len(first.created))
         self.assertEqual(("last30days",), first.excluded)
-        self.assertEqual(57, len(second.unchanged))
+        self.assertEqual(58, len(second.unchanged))
         self.assertEqual(("last30days",), second.excluded)
         self.assertEqual(before.st_ino, existing.lstat().st_ino)
         self.assertEqual(b"invalid but explicitly excluded\n", existing.read_bytes())
@@ -602,7 +602,7 @@ class InstallTests(unittest.TestCase):
 
         self.assertEqual(("last30days",), result.skipped)
         self.assertEqual(before, existing.lstat().st_ino)
-        self.assertEqual(57, len(result.created))
+        self.assertEqual(58, len(result.created))
 
     def test_valid_unrelated_symlink_can_be_explicitly_skipped(self):
         self.destination.mkdir(parents=True)
@@ -626,7 +626,7 @@ class InstallTests(unittest.TestCase):
             structural_only=True,
         )
         self.assertTrue(report.ok, report.errors)
-        self.assertEqual(57, report.installed_count)
+        self.assertEqual(58, report.installed_count)
         self.assertEqual(1, report.approved_existing_count)
 
     def test_skip_rejects_name_mismatch_or_unsafe_nested_symlink(self):
@@ -662,11 +662,11 @@ class InstallTests(unittest.TestCase):
         dry = install(COLLECTION, self.destination, dry_run=True)
 
         self.assertEqual((), dry.created)
-        self.assertEqual(58, len(dry.planned_created))
+        self.assertEqual(59, len(dry.planned_created))
         self.assertFalse(self.destination.exists())
 
         actual = install(COLLECTION, self.destination)
-        self.assertEqual(58, len(actual.created))
+        self.assertEqual(59, len(actual.created))
         self.assertEqual(dry.planned_created, actual.planned_created)
 
     def test_default_destination_uses_codex_home(self):
@@ -675,7 +675,7 @@ class InstallTests(unittest.TestCase):
             result = install()
 
         self.assertTrue(result.ok)
-        self.assertEqual(58, len(tuple((codex_home / "skills").iterdir())))
+        self.assertEqual(59, len(tuple((codex_home / "skills").iterdir())))
 
     def test_empty_codex_home_uses_home_fallback(self):
         home = self.root / "user-home"
@@ -683,7 +683,7 @@ class InstallTests(unittest.TestCase):
             result = install()
 
         self.assertTrue(result.ok, result.errors)
-        self.assertEqual(58, len(tuple((home / ".codex" / "skills").iterdir())))
+        self.assertEqual(59, len(tuple((home / ".codex" / "skills").iterdir())))
 
     def test_destination_symlink_file_and_overlap_are_rejected(self):
         real = self.root / "real"
@@ -1686,7 +1686,7 @@ class InstallTests(unittest.TestCase):
         )
 
         self.assertTrue(report.ok, report.errors)
-        self.assertEqual(58, report.installed_count)
+        self.assertEqual(59, report.installed_count)
         self.assertEqual(0, report.approved_existing_count)
 
     def test_installed_validator_observes_one_approved_existing_skill(self):
@@ -1702,7 +1702,7 @@ class InstallTests(unittest.TestCase):
         )
 
         self.assertTrue(report.ok, report.errors)
-        self.assertEqual(57, report.installed_count)
+        self.assertEqual(58, report.installed_count)
         self.assertEqual(1, report.approved_existing_count)
 
 
@@ -1822,7 +1822,7 @@ class CliTests(unittest.TestCase):
             payload = json.loads(stdout.getvalue())
             self.assertEqual(0, exit_code)
             self.assertEqual([], payload["created"])
-            self.assertEqual(58, len(payload["planned_created"]))
+            self.assertEqual(59, len(payload["planned_created"]))
             self.assertFalse(destination.exists())
 
     def test_cli_returns_nonzero_and_json_for_collisions(self):
@@ -1840,7 +1840,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(1, exit_code)
             self.assertEqual(["agent-reach"], payload["collisions"])
             self.assertEqual([], payload["created"])
-            self.assertEqual(57, len(payload["planned_created"]))
+            self.assertEqual(58, len(payload["planned_created"]))
 
     def test_text_collision_summary_does_not_claim_planned_links_were_created(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1857,7 +1857,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(1, exit_code)
             self.assertIn("Applied: created 0", stdout.getvalue())
-            self.assertIn("Planned: create 57", stdout.getvalue())
+            self.assertIn("Planned: create 58", stdout.getvalue())
 
     def test_cli_supports_repeatable_skip_existing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1908,7 +1908,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(0, exit_code, stderr.getvalue())
             payload = json.loads(stdout.getvalue())
             self.assertEqual(["agent-reach", "last30days"], payload["excluded"])
-            self.assertEqual(56, len(payload["planned_created"]))
+            self.assertEqual(57, len(payload["planned_created"]))
             self.assertFalse(destination.exists())
 
     def test_text_output_names_excluded_skills(self):

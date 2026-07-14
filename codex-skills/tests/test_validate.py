@@ -604,6 +604,7 @@ class CollectionValidationTests(unittest.TestCase):
         )
 
         with (
+            patch.dict(os.environ, {}, clear=True),
             patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
             patch(
                 "scripts.validate.subprocess.run",
@@ -621,6 +622,23 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertNotIn("pypi.org", results[0].initial_diagnostic)
         self.assertEqual("1", runner.call_args_list[1].kwargs["env"]["UV_OFFLINE"])
         self.assertEqual("1", runner.call_args_list[2].kwargs["env"]["UV_OFFLINE"])
+
+    def test_official_validation_reports_explicit_offline_environment(self):
+        skill = self.repo / "sample"
+        skill.mkdir()
+        success = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Skill is valid!\n", stderr=""
+        )
+
+        with (
+            patch.dict(os.environ, {"UV_OFFLINE": "1"}),
+            patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
+            patch("scripts.validate.subprocess.run", return_value=success) as runner,
+        ):
+            results = run_official_validation((skill,))
+
+        self.assertEqual("offline-cached", results[0].execution_mode)
+        self.assertEqual("1", runner.call_args.kwargs["env"]["UV_OFFLINE"])
 
     def test_regression_validation_records_observed_counts_without_ambient_bypass(self):
         version = subprocess.CompletedProcess(
@@ -934,22 +952,22 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual("available", status.status)
         self.assertEqual("available", status.probes[0].status)
 
-    def test_canonical_collection_has_observed_58_skill_contract(self):
+    def test_canonical_collection_has_observed_59_skill_contract(self):
         with patch(
             "scripts.validate.run_official_validation",
             side_effect=self.passed_official,
         ):
             report = validate_collection(REPOSITORY_ROOT)
 
-        self.assertEqual(58, report.skill_count)
+        self.assertEqual(59, report.skill_count)
         self.assertEqual(
-            (("adapted", 9), ("dependency-required", 43), ("native", 6)),
+            (("adapted", 9), ("dependency-required", 44), ("native", 6)),
             report.class_counts,
         )
-        self.assertEqual(52, report.runtime_count)
+        self.assertEqual(53, report.runtime_count)
         self.assertEqual(6, report.native_runtime_absent_count)
-        self.assertEqual(43, report.dependency_preflight_count)
-        self.assertEqual(43, report.dependency_secret_count)
+        self.assertEqual(44, report.dependency_preflight_count)
+        self.assertEqual(44, report.dependency_secret_count)
         self.assertEqual((), report.errors)
 
     def test_report_uses_observed_counts_and_lists_all_dependency_skills(self):
@@ -961,21 +979,23 @@ class CollectionValidationTests(unittest.TestCase):
 
         text = render_report(report)
 
-        self.assertIn("58 total", text)
+        self.assertIn("59 total", text)
         self.assertIn("6 native", text)
         self.assertIn("9 adapted", text)
-        self.assertIn("43 dependency-required", text)
+        self.assertIn("44 dependency-required", text)
         self.assertIn("| `agent-reach` |", text)
         self.assertIn("| `context-keeper` |", text)
         self.assertIn("| `skill-miner` |", text)
         self.assertIn("| `skills-librarian` |", text)
         self.assertIn("| `whitelabel-radar` |", text)
-        self.assertEqual(43, len(report.dependency_statuses))
+        self.assertEqual(44, len(report.dependency_statuses))
         immediate = text.split("## Dependency-Gated Skills", 1)[0]
         self.assertNotIn("`context-keeper`", immediate)
         self.assertNotIn("`skill-miner`", immediate)
         self.assertNotIn("`skills-librarian`", immediate)
         self.assertIn("No live external workflows", text)
+        self.assertIn("personal migration is pending", text.casefold())
+        self.assertIn("--exclude last30days", text)
 
     def test_report_lists_exact_per_dependency_probe_statuses(self):
         with patch(

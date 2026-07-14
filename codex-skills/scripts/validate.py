@@ -49,15 +49,15 @@ except ModuleNotFoundError:  # Support direct execution as scripts/validate.py.
     )
 
 
-EXPECTED_SKILL_COUNT = 58
-EXPECTED_SOURCE_COUNT = 51
-EXPECTED_PROMOTED_COUNT = 7
+EXPECTED_SKILL_COUNT = 59
+EXPECTED_SOURCE_COUNT = 45
+EXPECTED_PROMOTED_COUNT = 14
 EXPECTED_CLASS_COUNTS = {
     "adapted": 9,
-    "dependency-required": 43,
+    "dependency-required": 44,
     "native": 6,
 }
-EXPECTED_RUNTIME_COUNT = 52
+EXPECTED_RUNTIME_COUNT = 53
 OFFICIAL_VALIDATOR = Path(
     "/Users/brentbryson/.codex/skills/.system/skill-creator/scripts/quick_validate.py"
 )
@@ -956,9 +956,18 @@ def _validate_manifest_contract(
                 f"promoted provenance mismatch for {entry.output}: "
                 f"expected {expected!r}, got {entry.promoted_from!r}"
             )
-        if entry.conversion != "adapted" or entry.dependencies:
+        is_legacy = entry.promoted_from.startswith(
+            "codex-skills/archived-sources/"
+        )
+        if is_legacy:
+            if entry.conversion != "dependency-required" or not entry.dependencies:
+                errors.append(
+                    f"legacy promoted entry {entry.output} must be "
+                    "dependency-required with dependencies"
+                )
+        elif entry.conversion != "adapted" or entry.dependencies:
             errors.append(
-                f"promoted entry {entry.output} must be adapted without dependencies"
+                f"audit promoted entry {entry.output} must be adapted without dependencies"
             )
     return tuple(sorted(counts.items()))
 
@@ -1194,7 +1203,7 @@ def run_official_validation(
             for path in paths
         )
     results: list[OfficialValidation] = []
-    offline = False
+    offline = os.environ.get("UV_OFFLINE") == "1"
     for index, path in enumerate(paths):
         command = [
             uv,
@@ -2100,6 +2109,13 @@ def render_report(report: CollectionReport) -> str:
         lines.append(f"| `{item.name}` | {dependencies} | {item.status} |")
     lines.extend(
         [
+            "",
+            "## Personal Installation",
+            "",
+            "Personal migration is pending. No personal skill was changed by this "
+            "source-sync validation. The established migration command remains "
+            "`python3 scripts/install.py --exclude last30days`, preserving the "
+            "personal `last30days` installation.",
             "",
             "## Limitations",
             "",

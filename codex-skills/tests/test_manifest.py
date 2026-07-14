@@ -56,12 +56,12 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, pattern):
             self.load_data(data, repo_root=repo_root)
 
-    def test_manifest_has_51_sources_and_7_promoted_skills(self):
+    def test_manifest_has_45_sources_and_14_promoted_skills(self):
         manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
 
-        self.assertEqual(51, len(manifest.sources))
-        self.assertEqual(7, len(manifest.promoted))
-        self.assertEqual(58, len({entry.output for entry in manifest.entries}))
+        self.assertEqual(45, len(manifest.sources))
+        self.assertEqual(14, len(manifest.promoted))
+        self.assertEqual(59, len({entry.output for entry in manifest.entries}))
 
     def test_standup_requires_calendar_and_tasks_but_not_gmail(self):
         manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
@@ -97,6 +97,13 @@ class ManifestTests(unittest.TestCase):
             "requirements-coverage-audit": ".agents-backup/gsd-nyquist-auditor.md",
             "threat-mitigation-audit": ".agents-backup/gsd-security-auditor.md",
             "ai-evaluation-audit": ".agents-backup/gsd-eval-auditor.md",
+            "gitnexus-cli": "codex-skills/archived-sources/gitnexus-cli/SKILL.md",
+            "gitnexus-debugging": "codex-skills/archived-sources/gitnexus-debugging/SKILL.md",
+            "gitnexus-exploring": "codex-skills/archived-sources/gitnexus-exploring/SKILL.md",
+            "gitnexus-guide": "codex-skills/archived-sources/gitnexus-guide/SKILL.md",
+            "gitnexus-impact-analysis": "codex-skills/archived-sources/gitnexus-impact-analysis/SKILL.md",
+            "gitnexus-pr-review": "codex-skills/archived-sources/gitnexus-pr-review/SKILL.md",
+            "gitnexus-refactoring": "codex-skills/archived-sources/gitnexus-refactoring/SKILL.md",
         }
 
         self.assertEqual(expected, {entry.output: entry.promoted_from for entry in manifest.promoted})
@@ -162,7 +169,7 @@ class ManifestTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            {"adapted": 9, "dependency-required": 43, "native": 6},
+            {"adapted": 9, "dependency-required": 44, "native": 6},
             {
                 conversion: sum(
                     entry.conversion == conversion for entry in manifest.entries

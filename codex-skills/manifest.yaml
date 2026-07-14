@@ -121,60 +121,12 @@
       "notes": "Failure analysis workflow works directly in Codex."
     },
     {
-      "source": "gitnexus-cli",
+      "source": "graphify",
       "promoted_from": null,
-      "output": "gitnexus-cli",
+      "output": "graphify",
       "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
-      "notes": "Adds GitNexus availability checks and Codex command guidance."
-    },
-    {
-      "source": "gitnexus-debugging",
-      "promoted_from": null,
-      "output": "gitnexus-debugging",
-      "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
-      "notes": "Preserves graph-led debugging with CLI/MCP fallback."
-    },
-    {
-      "source": "gitnexus-exploring",
-      "promoted_from": null,
-      "output": "gitnexus-exploring",
-      "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
-      "notes": "Preserves graph exploration with CLI/MCP fallback."
-    },
-    {
-      "source": "gitnexus-guide",
-      "promoted_from": null,
-      "output": "gitnexus-guide",
-      "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
-      "notes": "Rewrites Claude tool references without renaming GitNexus."
-    },
-    {
-      "source": "gitnexus-impact-analysis",
-      "promoted_from": null,
-      "output": "gitnexus-impact-analysis",
-      "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
-      "notes": "Preserves impact analysis with CLI/MCP fallback."
-    },
-    {
-      "source": "gitnexus-pr-review",
-      "promoted_from": null,
-      "output": "gitnexus-pr-review",
-      "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "Git repository and PR diff"],
-      "notes": "Uses Codex file operations around the GitNexus review flow."
-    },
-    {
-      "source": "gitnexus-refactoring",
-      "promoted_from": null,
-      "output": "gitnexus-refactoring",
-      "conversion": "dependency-required",
-      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
-      "notes": "Preserves graph-led refactoring with CLI/MCP fallback."
+      "dependencies": ["Python 3 with graphifyy installed or package-install access", "read/write access to the target corpus and graphify-out"],
+      "notes": "Adapts slash invocation, semantic-worker orchestration, MCP setup, and resources for direct Codex execution. Gemini credentials remain optional."
     },
     {
       "source": "ground-truth",
@@ -465,6 +417,62 @@
       "conversion": "adapted",
       "dependencies": [],
       "notes": "Promotes AI evaluation auditing without fixed planning paths."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-cli/SKILL.md",
+      "output": "gitnexus-cli",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Retains the generated Codex workflow after its active Claude lineage was replaced by graphify."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-debugging/SKILL.md",
+      "output": "gitnexus-debugging",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Retains graph-led debugging from the final archived Claude source."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-exploring/SKILL.md",
+      "output": "gitnexus-exploring",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Retains graph exploration from the final archived Claude source."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-guide/SKILL.md",
+      "output": "gitnexus-guide",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Retains the GitNexus guide from the final archived Claude source."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-impact-analysis/SKILL.md",
+      "output": "gitnexus-impact-analysis",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Retains graph-led impact analysis from the final archived Claude source."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-pr-review/SKILL.md",
+      "output": "gitnexus-pr-review",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "Git repository and PR diff"],
+      "notes": "Retains graph-aware PR review from the final archived Claude source."
+    },
+    {
+      "source": null,
+      "promoted_from": "codex-skills/archived-sources/gitnexus-refactoring/SKILL.md",
+      "output": "gitnexus-refactoring",
+      "conversion": "dependency-required",
+      "dependencies": ["GitNexus CLI or MCP", "indexed Git repository"],
+      "notes": "Retains graph-led refactoring from the final archived Claude source."
     }
   ]
 }

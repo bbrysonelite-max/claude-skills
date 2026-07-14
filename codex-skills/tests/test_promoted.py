@@ -29,6 +29,18 @@ PROMOTED_PROVENANCE = {
     "threat-mitigation-audit": ".agents-backup/gsd-security-auditor.md",
     "ai-evaluation-audit": ".agents-backup/gsd-eval-auditor.md",
 }
+LEGACY_PROMOTED_PROVENANCE = {
+    name: f"codex-skills/archived-sources/{name}/SKILL.md"
+    for name in (
+        "gitnexus-cli",
+        "gitnexus-debugging",
+        "gitnexus-exploring",
+        "gitnexus-guide",
+        "gitnexus-impact-analysis",
+        "gitnexus-pr-review",
+        "gitnexus-refactoring",
+    )
+}
 
 CONTENT_MARKERS = {
     "assumptions-audit": (
@@ -139,15 +151,16 @@ class PromotedSkillContentTests(unittest.TestCase):
     def setUpClass(cls):
         cls.manifest = load_manifest(MANIFEST_PATH, repo_root=REPOSITORY_ROOT)
 
-    def test_exactly_seven_known_promoted_inputs_exist(self):
+    def test_exactly_fourteen_known_promoted_inputs_exist(self):
         actual = (
             {path.name for path in PROMOTED_ROOT.iterdir() if path.is_dir()}
             if PROMOTED_ROOT.is_dir()
             else set()
         )
-        self.assertEqual(set(PROMOTED_PROVENANCE), actual)
+        expected = set(PROMOTED_PROVENANCE) | set(LEGACY_PROMOTED_PROVENANCE)
+        self.assertEqual(expected, actual)
         self.assertEqual(
-            set(PROMOTED_PROVENANCE), {entry.output for entry in self.manifest.promoted}
+            expected, {entry.output for entry in self.manifest.promoted}
         )
 
     def test_frontmatter_descriptions_runtime_and_direct_mode_are_standalone(self):
@@ -511,13 +524,13 @@ class PromotedBuildTests(unittest.TestCase):
             }
 
             expected_names = {entry.output for entry in manifest.entries}
-            self.assertEqual(58, first.count)
+            self.assertEqual(59, first.count)
             self.assertEqual(expected_names, set(first.built_names))
             self.assertEqual(expected_names, {p.name for p in output.iterdir() if p.is_dir()})
             self.assertEqual(first, second)
             self.assertEqual(first_bytes, second_bytes)
             self.assertEqual(
-                52,
+                53,
                 sum(
                     (output / name / "SKILL.md")
                     .read_text(encoding="utf-8")

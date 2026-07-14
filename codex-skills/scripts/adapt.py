@@ -71,27 +71,12 @@ _ADAPTERS = {
         ("target Git repository", "repository documentation checks"),
     ),
     "failure-modes": AdapterSpec("native", ()),
-    "gitnexus-cli": AdapterSpec(
-        "dependency-required", ("GitNexus CLI or MCP", "indexed Git repository")
-    ),
-    "gitnexus-debugging": AdapterSpec(
-        "dependency-required", ("GitNexus CLI or MCP", "indexed Git repository")
-    ),
-    "gitnexus-exploring": AdapterSpec(
-        "dependency-required", ("GitNexus CLI or MCP", "indexed Git repository")
-    ),
-    "gitnexus-guide": AdapterSpec(
-        "dependency-required", ("GitNexus CLI or MCP", "indexed Git repository")
-    ),
-    "gitnexus-impact-analysis": AdapterSpec(
-        "dependency-required", ("GitNexus CLI or MCP", "indexed Git repository")
-    ),
-    "gitnexus-pr-review": AdapterSpec(
+    "graphify": AdapterSpec(
         "dependency-required",
-        ("GitNexus CLI or MCP", "Git repository and PR diff"),
-    ),
-    "gitnexus-refactoring": AdapterSpec(
-        "dependency-required", ("GitNexus CLI or MCP", "indexed Git repository")
+        (
+            "Python 3 with graphifyy installed or package-install access",
+            "read/write access to the target corpus and graphify-out",
+        ),
     ),
     "ground-truth": AdapterSpec("native", ()),
     "gws-shared": AdapterSpec(
@@ -232,6 +217,18 @@ ADAPTER_REGISTRY: Mapping[str, AdapterSpec] = MappingProxyType(_ADAPTERS)
 RESOURCE_ADAPTER_PATHS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "agent-reach": frozenset({"references/dev.md"}),
+        "graphify": frozenset(
+            {
+                "references/add-watch.md",
+                "references/exports.md",
+                "references/extraction-spec.md",
+                "references/github-and-merge.md",
+                "references/hooks.md",
+                "references/query.md",
+                "references/transcribe.md",
+                "references/update.md",
+            }
+        ),
         "here-now": frozenset({"references/REFERENCE.md"}),
         "last30days": frozenset(
             {
@@ -457,6 +454,43 @@ _LAST30DAYS_WEB_PREFLIGHT = (
     "No deferred-tool selection call is needed. If web search is unavailable, use the "
     "engine's documented `--auto-resolve` fallback and report that limitation.\n"
 )
+_GRAPHIFY_WORKER_SECTION = """**Process semantic chunks directly in the main Codex agent.** When collaboration is available, dispatch independent chunk workers together so they can run in parallel. Collaboration is optional; if it is unavailable, process each chunk directly and sequentially using the same extraction specification.
+
+Before processing chunks, print a timing estimate:
+- Load `total_words` and file counts from `graphify-out/.graphify_detect.json`
+- Estimate workers needed: `ceil(uncached_non_code_files / 22)` (chunk size is 20-25)
+- Estimate time: ~45s per worker batch when collaboration is available
+- Print: "Semantic extraction: ~N files -> X chunks, estimated ~Ys"
+"""
+_GRAPHIFY_DISPATCH_SECTION = """**Step B2 - Process chunks directly; collaborate when available**
+
+For each chunk, use `references/extraction-spec.md` as the exact task contract. Process the chunk directly in the main Codex agent. When collaboration is available, independent chunks may be assigned to workers in one parallel dispatch; do not require collaboration and do not block when it is unavailable.
+
+Every worker or direct pass receives the same substituted FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH values. Each pass must write valid JSON to its absolute CHUNK_PATH. The main agent remains responsible for checking every chunk result before merge.
+
+"""
+_GRAPHIFY_HOOKS_RESOURCE = """# graphify reference: commit hook and Codex integration
+
+Load this when the user asks to install the post-commit hook or make graphify part of a Codex project workflow.
+
+## For git commit hook
+
+Install a post-commit hook that rebuilds the graph after every commit. No background process is required.
+
+```bash
+graphify hook install    # install
+graphify hook uninstall  # remove
+graphify hook status     # check
+```
+
+After every `git commit`, the hook detects changed code files with `git diff HEAD~1`, reruns AST extraction, and rebuilds `graph.json` and `GRAPH_REPORT.md`. Doc or image changes are ignored by the hook; run `$graphify --update` for those.
+
+If a post-commit hook already exists, graphify appends to it rather than replacing it.
+
+## For Codex project integration
+
+Do not run product-specific commands that write another agent's instruction file. Add graphify guidance to the project's `AGENTS.md` only after the user approves that edit. The guidance should tell Codex to query an existing `graphify-out/graph.json` before broad codebase exploration and to run `graphify update` after relevant code changes.
+"""
 _MEMORY_STATUS_CONFIG_CHECK = (
     "### Check Codex MCP config (read-only)\n"
     "Read `~/.codex/config.toml` with Python 3.11's TOML parser and report only whether "
@@ -649,7 +683,7 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
     ),
     ("skills-librarian", "SKILL.md"): (
         ExpectedRewrite(
-            re.compile(re.escape("~/.claude/skills")), 3, "~/.codex/skills"
+            re.compile(re.escape("~/.claude/skills")), 4, "~/.codex/skills"
         ),
         ExpectedRewrite(
             re.compile(re.escape("source of truth Claude Code loads from")),
@@ -1140,6 +1174,119 @@ def _adapt_named_text(
         skill_name, text, relative_path, strict=strict
     )
 
+    if skill_name == "graphify":
+        text = re.sub(r"(?<![\w.-])/graphify(?=\s|$)", "$graphify", text)
+        text = text.replace(
+            "`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any other provider key",
+            "credentials for any other provider",
+        )
+        text = text.replace("`ANTHROPIC_API_KEY`", "other provider credentials")
+        text = text.replace("Claude vision", "the host image-inspection capability")
+        text = text.replace("|claude-cli", "")
+        text = text.replace("Claude Code", "Codex")
+        text = text.replace("Claude Desktop", "Codex")
+        text = text.replace("claude_desktop_config.json", "~/.codex/config.toml")
+        text = text.replace("CLAUDE.md", "AGENTS.md")
+        text = text.replace("graphify claude install", "graphify hook install")
+        text = text.replace("graphify claude uninstall", "graphify hook uninstall")
+        text = re.sub(r"\bsubagents\b", "workers", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bsubagent\b", "worker", text, flags=re.IGNORECASE)
+        text = text.replace("Before dispatching any workers", "Before processing chunks")
+        text = text.replace("Only dispatch workers", "Only process chunks")
+        text = text.replace("Wait for all workers.", "Finish all chunk passes.")
+        text = text.replace(
+            "On a host that dispatches workers (e.g. Codex), dispatch them as written "
+            "in Part B. On a host that runs the CLI directly in a terminal and cannot "
+            "dispatch workers",
+            "When Codex collaboration is available, independent chunks may be assigned "
+            "as written in Part B. When collaboration is unavailable",
+        )
+        text = text.replace(
+            "Pass each worker that prompt verbatim with FILE_LIST, CHUNK_NUM, "
+            "TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH substituted, and have it write "
+            "the result to CHUNK_PATH.",
+            "Use that prompt verbatim for every direct pass or worker, substituting "
+            "FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH, and write "
+            "the result to CHUNK_PATH.",
+        )
+        text = text.replace(
+            "If the file is missing, the worker was likely dispatched as read-only "
+            "(Explore type) — print a warning: \"chunk N missing from disk — worker may "
+            "have been read-only. Re-run with general-purpose agent.\" Do not silently skip.",
+            "If the file is missing, print a warning naming the chunk and retry that "
+            "chunk directly with write access. Do not silently skip.",
+        )
+        text = text.replace(
+            "If more than half the chunks failed or are missing, stop and tell the user "
+            "to re-run and ensure `subagent_type=\"general-purpose\"` is used.",
+            "If more than half the chunks failed or are missing, stop and report the "
+            "failed chunk numbers; retry them directly before merging.",
+        )
+        text = text.replace(
+            "Add them to the docs list before dispatching semantic workers in Step 3B",
+            "Add them to the docs list before processing semantic chunks in Step 3B",
+        )
+        text = text.replace("using the Write tool", "using filesystem editing")
+        text = text.replace(
+            "Write resolves relative paths against an undefined cwd",
+            "relative paths can resolve against the wrong working directory",
+        )
+        if relative_path == "references/hooks.md":
+            text = _GRAPHIFY_HOOKS_RESOURCE
+        elif relative_path == "references/exports.md":
+            text = re.sub(
+                r"Add to Codex or any MCP-compatible agent orchestrator so other agents "
+                r"can query the graph live\.\n\nTo configure in Codex, add to "
+                r"`~/\.codex/config\.toml`\. Codex can't run `\$\(\.\.\.\)`, and under "
+                r"`uv tool install` the system `python3` can't import graphify — so set "
+                r"`command` to the \*\*absolute interpreter path\*\* printed by "
+                r"`cat graphify-out/\.graphify_python`:\n```json\n.*?\n```",
+                (
+                    "Register the server through the active Codex MCP configuration only "
+                    "when the user requests it. Use the absolute interpreter path printed "
+                    "by `cat graphify-out/.graphify_python` as the command, with `-m "
+                    "graphify.serve /absolute/path/to/graphify-out/graph.json` as arguments. "
+                    "Never print unrelated MCP configuration or secret values."
+                ),
+                text,
+                flags=re.DOTALL,
+            )
+        elif relative_path == "SKILL.md":
+            text = re.sub(
+                r"\*\*MANDATORY: You MUST use the Agent tool here\..*?\*\*\n\n"
+                r"Before dispatching workers, print a timing estimate:\n"
+                r"(?:- [^\n]*\n){4}",
+                _GRAPHIFY_WORKER_SECTION,
+                text,
+                flags=re.DOTALL,
+            )
+            text = re.sub(
+                r"\*\*Step B2 - Dispatch ALL workers in a single message\*\*\n.*?"
+                r"Each worker receives this exact prompt \(substitute FILE_LIST, "
+                r"CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH\)\.\n\n",
+                _GRAPHIFY_DISPATCH_SECTION,
+                text,
+                flags=re.DOTALL,
+            )
+            text = text.replace(
+                "**Run Part A (AST) and Part B (semantic) in parallel. Dispatch all "
+                "semantic workers AND start AST extraction in the same message. Both can "
+                "run simultaneously since they operate on different file types. Merge "
+                "results in Part C as before.**",
+                "Start Part A first. When collaboration is available, Part B workers may "
+                "run in parallel because they use different files. Otherwise finish Part "
+                "A, process each semantic chunk directly, then merge in Part C.",
+            )
+            text = text.replace(
+                "After each Agent call completes, read the real token counts from the "
+                "Agent tool result's `usage` field and write them back into the chunk JSON "
+                "before merging",
+                "When collaboration reports token usage, copy those counts into the chunk "
+                "JSON before merging; direct passes should record counts only when the "
+                "runtime exposes them",
+            )
+            text = text.replace("Agent tool", "collaboration capability")
+
     if skill_name in {"doc-keeper", "tiger-doc-keeper"} and relative_path == "SKILL.md":
         direct_workflow = newline.join(
             (
@@ -1352,6 +1499,14 @@ def _runtime_details(skill_name: str) -> list[str]:
         details.append(
             "Keep GitNexus as the external product name. Use actual GitNexus MCP tools and "
             "resources when available; otherwise preflight the CLI through `npx gitnexus`."
+        )
+    if skill_name == "graphify":
+        details.extend(
+            (
+                "Use `$graphify` when naming the loaded skill and `graphify` for actual CLI commands.",
+                "Run extraction directly in the main Codex agent. Use collaboration for independent semantic chunks only when the active environment exposes it; direct sequential extraction remains the fallback.",
+                "Gemini credentials are optional. Check only whether `GEMINI_API_KEY` or `GOOGLE_API_KEY` is set, never print values, and never request a credential when direct extraction can continue.",
+            )
         )
     if skill_name in _CROSS_SKILL_PATHS:
         details.append(
