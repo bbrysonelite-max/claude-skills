@@ -1976,7 +1976,9 @@ def render_report(report: CollectionReport) -> str:
         result.passed for result in report.injected_defect_results
     )
     injection_total = len(report.injected_defect_results)
-    excluded_summary = f"{report.excluded_count} excluded"
+    excluded_summary = (
+        f"{report.excluded_count} excluded from management/inspection"
+    )
     if report.excluded:
         excluded_summary += " (" + ", ".join(
             f"`{name}`" for name in report.excluded
@@ -2152,21 +2154,18 @@ def render_report(report: CollectionReport) -> str:
     if report.installed_count is None:
         lines.append(
             "Personal migration is pending. No personal skill was changed by this "
-            "source-sync validation. The established migration command remains "
-            "`python3 scripts/install.py --exclude last30days`, preserving the "
-            "personal `last30days` installation."
+            "source-sync validation. If managed links point to an earlier generated "
+            "root, run `python3 scripts/install.py --previous-source "
+            "<old>/codex-skills/skills --exclude last30days`. The exclusion leaves "
+            "`last30days` outside installer management and inspection."
         )
     else:
         lines.append(
-            f"Personal installation was inspected: {report.installed_count} managed "
-            f"links; {report.approved_existing_count or 0} approved existing "
-            f"directories; {excluded_summary}."
+            "Personal managed-skill migration is complete: "
+            f"{report.installed_count} managed links; "
+            f"{report.approved_existing_count or 0} approved existing directories; "
+            f"{excluded_summary}."
         )
-        if "last30days" in report.excluded:
-            lines.append(
-                "The personal `last30days` installation was preserved by explicit "
-                "exclusion."
-            )
     lines.extend(
         [
             "",

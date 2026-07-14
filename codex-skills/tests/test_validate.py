@@ -911,6 +911,24 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual(("last30days",), report.excluded)
         self.assertFalse(any("installed skill last30days" in error for error in report.errors))
 
+    def test_absent_excluded_skill_is_not_reported_as_preserved(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+
+        report = self.validate_fixture(
+            installed=installed,
+            exclude=("last30days",),
+        )
+        text = render_report(report)
+
+        self.assertEqual(("last30days",), report.excluded)
+        self.assertFalse((installed / "last30days").exists())
+        self.assertIn(
+            "1 excluded from management/inspection (`last30days`)", text
+        )
+        self.assertNotIn("preserved", text.casefold())
+
     def test_installed_validation_rejects_unknown_unsafe_or_conflicting_exclusion(self):
         self.make_source_and_output("last30days")
         installed = self.repo / "installed"
@@ -1170,13 +1188,18 @@ class CollectionValidationTests(unittest.TestCase):
 
         text = render_report(report)
 
-        self.assertIn("1 excluded (`last30days`)", text)
+        self.assertIn(
+            "1 excluded from management/inspection (`last30days`)", text
+        )
         personal = text.split("## Personal Installation", 1)[1].split(
             "## Limitations", 1
         )[0]
         self.assertIn("58 managed links", personal)
-        self.assertIn("1 excluded (`last30days`)", personal)
-        self.assertIn("`last30days` installation was preserved", personal)
+        self.assertIn(
+            "1 excluded from management/inspection (`last30days`)", personal
+        )
+        self.assertNotIn("preserved", personal.casefold())
+        self.assertIn("migration is complete", personal.casefold())
         self.assertNotIn("migration is pending", personal.casefold())
 
     def test_report_retains_pending_personal_install_language_when_not_inspected(self):
@@ -1186,6 +1209,10 @@ class CollectionValidationTests(unittest.TestCase):
             "## Limitations", 1
         )[0]
         self.assertIn("migration is pending", personal.casefold())
+        self.assertIn(
+            "--previous-source <old>/codex-skills/skills --exclude last30days",
+            personal,
+        )
         self.assertIn("not inspected", text.casefold())
 
 
