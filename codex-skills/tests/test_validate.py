@@ -474,6 +474,96 @@ class CollectionValidationTests(unittest.TestCase):
         ):
             return validate_collection(self.repo, **kwargs)
 
+    def make_242_file_unmanifested_source_fixture(self):
+        from scripts.common import discover_source_skills, hash_protected_sources
+
+        shutil.copy2(
+            REPOSITORY_ROOT / "codex-skills" / "manifest.yaml",
+            self.repo / "codex-skills" / "manifest.yaml",
+        )
+        shutil.copytree(
+            REPOSITORY_ROOT / "codex-skills" / "archived-sources",
+            self.repo / "codex-skills" / "archived-sources",
+        )
+        shutil.rmtree(self.repo / ".agents-backup")
+        shutil.copytree(REPOSITORY_ROOT / ".agents-backup", self.repo / ".agents-backup")
+        for source in discover_source_skills(REPOSITORY_ROOT):
+            shutil.copytree(source, self.repo / source.name)
+        unmanifested = self.repo / "unmanifested-review-source"
+        unmanifested.mkdir()
+        unmanifested.joinpath("SKILL.md").write_text(
+            "---\nname: unmanifested-review-source\n"
+            "description: Reproduces the reviewed source topology bypass.\n"
+            "---\n\n# Unmanifested Review Source\n",
+            encoding="utf-8",
+        )
+        snapshot = hash_protected_sources(self.repo)
+        self.assertEqual(242, len(snapshot))
+        (self.repo / "codex-skills" / "source-hashes.json").write_text(
+            json.dumps(snapshot, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_source_only_rejects_regenerated_242_file_unmanifested_source(self):
+        self.make_242_file_unmanifested_source_fixture()
+
+        report = validate_collection(self.repo, source_only=True)
+
+        self.assertTrue(report.source_hashes_match)
+        self.assertFalse(report.ok)
+        self.assertTrue(
+            any(
+                error
+                == "unmanifested current source skills: unmanifested-review-source"
+                for error in report.errors
+            ),
+            report.errors,
+        )
+
+    def test_source_only_cli_rejects_regenerated_242_file_unmanifested_source(self):
+        self.make_242_file_unmanifested_source_fixture()
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = main(
+                ["--repo", str(self.repo), "--source-only", "--json"]
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(1, exit_code)
+        self.assertTrue(payload["source_hashes_match"])
+        self.assertIn(
+            "unmanifested current source skills: unmanifested-review-source",
+            payload["errors"],
+        )
+
+    def test_source_only_rejects_manifest_source_without_skill_document(self):
+        source = self.repo / "declared-source"
+        source.mkdir()
+        self.write_manifest((source_entry("declared-source"),))
+        from scripts.common import hash_protected_sources
+
+        (self.repo / "codex-skills" / "source-hashes.json").write_text(
+            json.dumps(hash_protected_sources(self.repo), indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("scripts.validate.EXPECTED_SKILL_COUNT", 1),
+            patch("scripts.validate.EXPECTED_SOURCE_COUNT", 1),
+            patch("scripts.validate.EXPECTED_PROMOTED_COUNT", 0),
+            patch(
+                "scripts.validate.EXPECTED_CLASS_COUNTS",
+                {"adapted": 0, "dependency-required": 0, "native": 1},
+            ),
+        ):
+            report = validate_collection(self.repo, source_only=True)
+
+        self.assertIn(
+            "manifest source skills missing from current source topology: declared-source",
+            report.errors,
+        )
+
     def test_collection_reports_extra_and_missing_outputs_together(self):
         self.make_source_and_output("expected")
         shutil.rmtree(self.repo / "codex-skills" / "skills" / "expected")
@@ -604,6 +694,7 @@ class CollectionValidationTests(unittest.TestCase):
         )
 
         with (
+            patch.dict(os.environ, {}, clear=True),
             patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
             patch(
                 "scripts.validate.subprocess.run",
@@ -621,6 +712,23 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertNotIn("pypi.org", results[0].initial_diagnostic)
         self.assertEqual("1", runner.call_args_list[1].kwargs["env"]["UV_OFFLINE"])
         self.assertEqual("1", runner.call_args_list[2].kwargs["env"]["UV_OFFLINE"])
+
+    def test_official_validation_reports_explicit_offline_environment(self):
+        skill = self.repo / "sample"
+        skill.mkdir()
+        success = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Skill is valid!\n", stderr=""
+        )
+
+        with (
+            patch.dict(os.environ, {"UV_OFFLINE": "1"}),
+            patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
+            patch("scripts.validate.subprocess.run", return_value=success) as runner,
+        ):
+            results = run_official_validation((skill,))
+
+        self.assertEqual("offline-cached", results[0].execution_mode)
+        self.assertEqual("1", runner.call_args.kwargs["env"]["UV_OFFLINE"])
 
     def test_regression_validation_records_observed_counts_without_ambient_bypass(self):
         version = subprocess.CompletedProcess(
@@ -803,6 +911,24 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual(("last30days",), report.excluded)
         self.assertFalse(any("installed skill last30days" in error for error in report.errors))
 
+    def test_absent_excluded_skill_is_not_reported_as_preserved(self):
+        self.make_source_and_output("last30days")
+        installed = self.repo / "installed"
+        installed.mkdir()
+
+        report = self.validate_fixture(
+            installed=installed,
+            exclude=("last30days",),
+        )
+        text = render_report(report)
+
+        self.assertEqual(("last30days",), report.excluded)
+        self.assertFalse((installed / "last30days").exists())
+        self.assertIn(
+            "1 excluded from management/inspection (`last30days`)", text
+        )
+        self.assertNotIn("preserved", text.casefold())
+
     def test_installed_validation_rejects_unknown_unsafe_or_conflicting_exclusion(self):
         self.make_source_and_output("last30days")
         installed = self.repo / "installed"
@@ -934,22 +1060,22 @@ class CollectionValidationTests(unittest.TestCase):
         self.assertEqual("available", status.status)
         self.assertEqual("available", status.probes[0].status)
 
-    def test_canonical_collection_has_observed_58_skill_contract(self):
+    def test_canonical_collection_has_observed_59_skill_contract(self):
         with patch(
             "scripts.validate.run_official_validation",
             side_effect=self.passed_official,
         ):
             report = validate_collection(REPOSITORY_ROOT)
 
-        self.assertEqual(58, report.skill_count)
+        self.assertEqual(59, report.skill_count)
         self.assertEqual(
-            (("adapted", 9), ("dependency-required", 43), ("native", 6)),
+            (("adapted", 9), ("dependency-required", 44), ("native", 6)),
             report.class_counts,
         )
-        self.assertEqual(52, report.runtime_count)
+        self.assertEqual(53, report.runtime_count)
         self.assertEqual(6, report.native_runtime_absent_count)
-        self.assertEqual(43, report.dependency_preflight_count)
-        self.assertEqual(43, report.dependency_secret_count)
+        self.assertEqual(44, report.dependency_preflight_count)
+        self.assertEqual(44, report.dependency_secret_count)
         self.assertEqual((), report.errors)
 
     def test_report_uses_observed_counts_and_lists_all_dependency_skills(self):
@@ -961,21 +1087,23 @@ class CollectionValidationTests(unittest.TestCase):
 
         text = render_report(report)
 
-        self.assertIn("58 total", text)
+        self.assertIn("59 total", text)
         self.assertIn("6 native", text)
         self.assertIn("9 adapted", text)
-        self.assertIn("43 dependency-required", text)
+        self.assertIn("44 dependency-required", text)
         self.assertIn("| `agent-reach` |", text)
         self.assertIn("| `context-keeper` |", text)
         self.assertIn("| `skill-miner` |", text)
         self.assertIn("| `skills-librarian` |", text)
         self.assertIn("| `whitelabel-radar` |", text)
-        self.assertEqual(43, len(report.dependency_statuses))
+        self.assertEqual(44, len(report.dependency_statuses))
         immediate = text.split("## Dependency-Gated Skills", 1)[0]
         self.assertNotIn("`context-keeper`", immediate)
         self.assertNotIn("`skill-miner`", immediate)
         self.assertNotIn("`skills-librarian`", immediate)
         self.assertIn("No live external workflows", text)
+        self.assertIn("personal migration is pending", text.casefold())
+        self.assertIn("--exclude last30days", text)
 
     def test_report_lists_exact_per_dependency_probe_statuses(self):
         with patch(
@@ -1053,14 +1181,39 @@ class CollectionValidationTests(unittest.TestCase):
     def test_report_names_explicitly_excluded_installed_skills(self):
         report = replace(
             CollectionReport.empty(self.repo),
-            installed_count=57,
+            installed_count=58,
             approved_existing_count=0,
             excluded=("last30days",),
         )
 
         text = render_report(report)
 
-        self.assertIn("1 excluded (`last30days`)", text)
+        self.assertIn(
+            "1 excluded from management/inspection (`last30days`)", text
+        )
+        personal = text.split("## Personal Installation", 1)[1].split(
+            "## Limitations", 1
+        )[0]
+        self.assertIn("58 managed links", personal)
+        self.assertIn(
+            "1 excluded from management/inspection (`last30days`)", personal
+        )
+        self.assertNotIn("preserved", personal.casefold())
+        self.assertIn("migration is complete", personal.casefold())
+        self.assertNotIn("migration is pending", personal.casefold())
+
+    def test_report_retains_pending_personal_install_language_when_not_inspected(self):
+        text = render_report(CollectionReport.empty(self.repo))
+
+        personal = text.split("## Personal Installation", 1)[1].split(
+            "## Limitations", 1
+        )[0]
+        self.assertIn("migration is pending", personal.casefold())
+        self.assertIn(
+            "--previous-source <old>/codex-skills/skills --exclude last30days",
+            personal,
+        )
+        self.assertIn("not inspected", text.casefold())
 
 
 class CliTests(unittest.TestCase):
@@ -1366,6 +1519,36 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(1, main(["--repo", str(repo), "--check"]))
 
         self.assertNotEqual(old_fingerprint, new_fingerprint)
+
+    def test_check_rejects_legacy_integrity_contract_mutation_after_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            scripts = repo / "codex-skills" / "scripts"
+            scripts.mkdir(parents=True)
+            integrity = scripts / "legacy_integrity.py"
+            integrity.write_text("PIN = 'before'\n", encoding="utf-8")
+            old_fingerprint = _structural_fingerprint(repo)
+            report_path = repo / "codex-skills" / "VALIDATION.md"
+            report_path.write_text(
+                f"- **Structural fingerprint:** `{old_fingerprint}`\n",
+                encoding="utf-8",
+            )
+
+            integrity.write_text("PIN = 'after'\n", encoding="utf-8")
+            new_fingerprint = _structural_fingerprint(repo)
+            report = replace(
+                CollectionReport.empty(repo), structural_fingerprint=new_fingerprint
+            )
+
+            with (
+                patch("scripts.validate.validate_collection", return_value=report),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                exit_code = main(["--repo", str(repo), "--check"])
+
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
+        self.assertEqual(1, exit_code)
 
 
 if __name__ == "__main__":

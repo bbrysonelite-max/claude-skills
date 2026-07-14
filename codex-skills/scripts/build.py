@@ -28,6 +28,10 @@ try:
         parse_skill_document,
         render_skill_document,
     )
+    from scripts.legacy_integrity import (
+        LEGACY_PROMOTED_PROVENANCE,
+        validate_legacy_integrity,
+    )
 except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
     from adapt import (  # type: ignore[no-redef]
         adapt_description,
@@ -43,6 +47,10 @@ except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
         load_manifest,
         parse_skill_document,
         render_skill_document,
+    )
+    from legacy_integrity import (  # type: ignore[no-redef]
+        LEGACY_PROMOTED_PROVENANCE,
+        validate_legacy_integrity,
     )
 
 
@@ -74,6 +82,12 @@ GENERATED_ADAPTER_RESOURCES = {
             Path("scripts/digest_codex.py"),
         ),
     ),
+    "skills-librarian": (
+        (
+            Path("codex-skills/adapters/skills-librarian/audit.py"),
+            Path("scripts/audit.py"),
+        ),
+    ),
 }
 REQUIRED_OVERRIDE_NAMES = frozenset(
     {
@@ -92,7 +106,7 @@ REQUIRED_OVERRIDE_NAMES = frozenset(
         "tiger-doc-keeper",
     }
 )
-PROMOTED_PROVENANCE = {
+AUDIT_PROMOTED_PROVENANCE = {
     "assumptions-audit": ".agents-backup/gsd-assumptions-analyzer.md",
     "codebase-pattern-mapping": ".agents-backup/gsd-pattern-mapper.md",
     "documentation-claim-verification": ".agents-backup/gsd-doc-verifier.md",
@@ -100,6 +114,10 @@ PROMOTED_PROVENANCE = {
     "requirements-coverage-audit": ".agents-backup/gsd-nyquist-auditor.md",
     "threat-mitigation-audit": ".agents-backup/gsd-security-auditor.md",
     "ai-evaluation-audit": ".agents-backup/gsd-eval-auditor.md",
+}
+PROMOTED_PROVENANCE = {
+    **AUDIT_PROMOTED_PROVENANCE,
+    **LEGACY_PROMOTED_PROVENANCE,
 }
 OVERRIDE_REQUIRED_SECTIONS = (
     "## Codex Runtime",
@@ -116,6 +134,9 @@ _PROMOTED_ARCHIVED_RUNTIME = re.compile(
     r"(?:\bgsd\b|\.planning/|\.claude/|\borchestrator\b|\bslash command\b)",
     re.IGNORECASE,
 )
+PROMOTED_SECRET_CLAUSE = "Never expose or print secret, credential, or token values."
+PROMOTED_PREFLIGHT_CLAUSE = "Preflight each dependency using MCP/app capability discovery"
+PROMOTED_BLOCKED_CLAUSE = "If any mandatory dependency is unavailable"
 
 
 @dataclass(frozen=True)
@@ -372,6 +393,20 @@ def _frontmatter_keys(text: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def _promoted_dependency_list(body: str) -> tuple[str, ...]:
+    lines = body.splitlines()
+    try:
+        start = lines.index("Mandatory dependencies:") + 1
+    except ValueError:
+        return ()
+    dependencies: list[str] = []
+    for line in lines[start:]:
+        if not line.startswith("- `") or not line.endswith("`"):
+            break
+        dependencies.append(line[3:-1])
+    return tuple(dependencies)
+
+
 def _validate_promoted(
     repo_root: Path, manifest: Manifest
 ) -> list[_ValidatedPromoted]:
@@ -414,9 +449,19 @@ def _validate_promoted(
             )
         if entry.source is not None:
             raise ValueError(f"promoted entry {entry.output} must not set source")
-        if entry.conversion != "adapted" or entry.dependencies:
+        is_legacy = entry.output in LEGACY_PROMOTED_PROVENANCE
+        if is_legacy:
+            if entry.conversion != "dependency-required" or not entry.dependencies:
+                raise ValueError(
+                    f"legacy promoted entry {entry.output} must use a "
+                    "dependency-required contract"
+                )
+            integrity_errors = validate_legacy_integrity(repo_root, (entry.output,))
+            if integrity_errors:
+                raise ValueError(integrity_errors[0])
+        elif entry.conversion != "adapted" or entry.dependencies:
             raise ValueError(
-                f"promoted entry {entry.output} must use adapted conversion "
+                f"audit promoted entry {entry.output} must use adapted conversion "
                 "with no dependency contract"
             )
 
@@ -476,11 +521,34 @@ def _validate_promoted(
                 f"promoted input {entry.output} must contain exactly one "
                 "'## Codex Runtime' section"
             )
-        if "main Codex agent" not in document.body:
+        if not is_legacy and "main Codex agent" not in document.body:
             raise ValueError(
                 f"promoted input {entry.output} must operate in the main Codex agent"
             )
-        if "Never print, log, or expose secret values." not in document.body:
+        if is_legacy:
+            observed_dependencies = _promoted_dependency_list(document.body)
+            if observed_dependencies != entry.dependencies:
+                raise ValueError(
+                    f"legacy promoted input {entry.output} dependency contract does not "
+                    f"match manifest: expected {entry.dependencies!r}, "
+                    f"found {observed_dependencies!r}"
+                )
+            required_clauses = {
+                "secret-safety": PROMOTED_SECRET_CLAUSE,
+                "preflight": PROMOTED_PREFLIGHT_CLAUSE,
+                "blocked-state": PROMOTED_BLOCKED_CLAUSE,
+            }
+            missing_clauses = [
+                label
+                for label, clause in required_clauses.items()
+                if clause not in document.body
+            ]
+            if missing_clauses:
+                raise ValueError(
+                    f"legacy promoted input {entry.output} is missing required "
+                    f"runtime clauses: {', '.join(missing_clauses)}"
+                )
+        elif "Never print, log, or expose secret values." not in document.body:
             raise ValueError(
                 f"promoted input {entry.output} is missing the secret-safety clause"
             )

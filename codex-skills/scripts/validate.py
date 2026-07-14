@@ -27,9 +27,14 @@ try:
         SAFE_SKILL_NAME,
         Manifest,
         SkillEntry,
+        discover_source_skills,
         hash_protected_sources,
         load_manifest,
         parse_skill_document,
+    )
+    from scripts.legacy_integrity import (
+        LEGACY_INTEGRITY_PINS,
+        validate_legacy_integrity,
     )
 except ModuleNotFoundError:  # Support direct execution as scripts/validate.py.
     from adapt import validate_generated_markdown  # type: ignore[no-redef]
@@ -43,21 +48,26 @@ except ModuleNotFoundError:  # Support direct execution as scripts/validate.py.
         SAFE_SKILL_NAME,
         Manifest,
         SkillEntry,
+        discover_source_skills,
         hash_protected_sources,
         load_manifest,
         parse_skill_document,
     )
+    from legacy_integrity import (  # type: ignore[no-redef]
+        LEGACY_INTEGRITY_PINS,
+        validate_legacy_integrity,
+    )
 
 
-EXPECTED_SKILL_COUNT = 58
-EXPECTED_SOURCE_COUNT = 51
-EXPECTED_PROMOTED_COUNT = 7
+EXPECTED_SKILL_COUNT = 59
+EXPECTED_SOURCE_COUNT = 45
+EXPECTED_PROMOTED_COUNT = 14
 EXPECTED_CLASS_COUNTS = {
     "adapted": 9,
-    "dependency-required": 43,
+    "dependency-required": 44,
     "native": 6,
 }
-EXPECTED_RUNTIME_COUNT = 52
+EXPECTED_RUNTIME_COUNT = 53
 OFFICIAL_VALIDATOR = Path(
     "/Users/brentbryson/.codex/skills/.system/skill-creator/scripts/quick_validate.py"
 )
@@ -916,6 +926,29 @@ def _validate_source_hashes(repo_root: Path) -> tuple[int, bool, list[str]]:
     return len(current), not errors, errors
 
 
+def _validate_source_topology(
+    repo_root: Path, manifest: Manifest, errors: list[str]
+) -> None:
+    """Require the current root skill set to match manifest sources exactly."""
+    try:
+        discovered = {path.name for path in discover_source_skills(repo_root)}
+    except OSError as error:
+        errors.append(f"current source topology cannot be discovered: {error}")
+        return
+    declared = {entry.source for entry in manifest.sources}
+    missing = sorted(declared - discovered)
+    unmanifested = sorted(discovered - declared)
+    if missing:
+        errors.append(
+            "manifest source skills missing from current source topology: "
+            + ", ".join(missing)
+        )
+    if unmanifested:
+        errors.append(
+            "unmanifested current source skills: " + ", ".join(unmanifested)
+        )
+
+
 def _validate_manifest_contract(
     manifest: Manifest, errors: list[str]
 ) -> tuple[tuple[str, int], ...]:
@@ -956,9 +989,18 @@ def _validate_manifest_contract(
                 f"promoted provenance mismatch for {entry.output}: "
                 f"expected {expected!r}, got {entry.promoted_from!r}"
             )
-        if entry.conversion != "adapted" or entry.dependencies:
+        is_legacy = entry.promoted_from.startswith(
+            "codex-skills/archived-sources/"
+        )
+        if is_legacy:
+            if entry.conversion != "dependency-required" or not entry.dependencies:
+                errors.append(
+                    f"legacy promoted entry {entry.output} must be "
+                    "dependency-required with dependencies"
+                )
+        elif entry.conversion != "adapted" or entry.dependencies:
             errors.append(
-                f"promoted entry {entry.output} must be adapted without dependencies"
+                f"audit promoted entry {entry.output} must be adapted without dependencies"
             )
     return tuple(sorted(counts.items()))
 
@@ -986,6 +1028,7 @@ def _structural_fingerprint(repo_root: Path) -> str:
         codex_root / "scripts" / "adapt.py",
         codex_root / "scripts" / "build.py",
         codex_root / "scripts" / "common.py",
+        codex_root / "scripts" / "legacy_integrity.py",
         codex_root / "scripts" / "validate.py",
     )
     contract: dict[str, tuple[str, int, str]] = {}
@@ -1194,7 +1237,7 @@ def run_official_validation(
             for path in paths
         )
     results: list[OfficialValidation] = []
-    offline = False
+    offline = os.environ.get("UV_OFFLINE") == "1"
     for index, path in enumerate(paths):
         command = [
             uv,
@@ -1694,6 +1737,13 @@ def validate_collection(
         errors.append(f"manifest validation failed: {error}")
     else:
         class_counts = _validate_manifest_contract(manifest, errors)
+        _validate_source_topology(root, manifest, errors)
+        legacy_names = tuple(
+            entry.output
+            for entry in manifest.promoted
+            if entry.output in LEGACY_INTEGRITY_PINS
+        )
+        errors.extend(validate_legacy_integrity(root, legacy_names))
 
     if source_only:
         return CollectionReport(
@@ -1926,7 +1976,9 @@ def render_report(report: CollectionReport) -> str:
         result.passed for result in report.injected_defect_results
     )
     injection_total = len(report.injected_defect_results)
-    excluded_summary = f"{report.excluded_count} excluded"
+    excluded_summary = (
+        f"{report.excluded_count} excluded from management/inspection"
+    )
     if report.excluded:
         excluded_summary += " (" + ", ".join(
             f"`{name}`" for name in report.excluded
@@ -2098,6 +2150,22 @@ def render_report(report: CollectionReport) -> str:
             f"`{probe.dependency}` ({probe.status})" for probe in item.probes
         )
         lines.append(f"| `{item.name}` | {dependencies} | {item.status} |")
+    lines.extend(["", "## Personal Installation", ""])
+    if report.installed_count is None:
+        lines.append(
+            "Personal migration is pending. No personal skill was changed by this "
+            "source-sync validation. If managed links point to an earlier generated "
+            "root, run `python3 scripts/install.py --previous-source "
+            "<old>/codex-skills/skills --exclude last30days`. The exclusion leaves "
+            "`last30days` outside installer management and inspection."
+        )
+    else:
+        lines.append(
+            "Personal managed-skill migration is complete: "
+            f"{report.installed_count} managed links; "
+            f"{report.approved_existing_count or 0} approved existing directories; "
+            f"{excluded_summary}."
+        )
     lines.extend(
         [
             "",

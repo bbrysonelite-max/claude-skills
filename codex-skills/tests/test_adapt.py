@@ -228,6 +228,59 @@ class AdapterContractTests(unittest.TestCase):
                         entry=entry,
                     )
 
+    def test_graphify_strict_structural_regions_reject_one_word_source_drift(self):
+        cases = (
+            (
+                "mandatory worker policy",
+                "SKILL.md",
+                "Reading files yourself one-by-one is forbidden",
+                "Reading source files yourself one-by-one is forbidden",
+            ),
+            (
+                "dispatch block",
+                "SKILL.md",
+                "This is the only way they run in parallel",
+                "This is the preferred way they run in parallel",
+            ),
+            (
+                "MCP configuration",
+                "references/exports.md",
+                '"mcpServers": {',
+                '"mcp_services": {',
+            ),
+            (
+                "hooks integration",
+                "references/hooks.md",
+                "auto-rebuilds the graph",
+                "automatically rebuilds the graph",
+            ),
+        )
+        for label, relative_path, source, replacement in cases:
+            with self.subTest(label=label):
+                text = (
+                    source_body("graphify")
+                    if relative_path == "SKILL.md"
+                    else source_text("graphify", relative_path)
+                )
+                self.assertEqual(1, text.count(source))
+                drifted = text.replace(source, replacement)
+
+                with self.assertRaisesRegex(ValueError, "source adapter drifted"):
+                    adapt_text(
+                        "graphify",
+                        drifted,
+                        relative_path=relative_path,
+                        entry=self.entries["graphify"],
+                    )
+
+    def test_graphify_mcp_output_has_no_mixed_claude_json_codex_config(self):
+        result = self.adapt_source("graphify", "references/exports.md")
+
+        self.assertIn("~/.codex/config.toml", result)
+        self.assertNotIn("Claude", result)
+        self.assertNotIn("```json", result)
+        self.assertNotIn('"mcpServers"', result)
+
     def test_the_rebuild_reference_resource_is_adapted(self):
         result = self.adapt_source("the-rebuild", "REFERENCE.md")
 
@@ -514,9 +567,9 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
             output = Path(temporary_directory) / "skills"
             result = build_collection(REPOSITORY_ROOT, manifest, output)
 
-            self.assertEqual(58, result.count)
+            self.assertEqual(59, result.count)
             self.assertEqual(
-                Counter({"dependency-required": 43, "native": 6, "adapted": 2}),
+                Counter({"dependency-required": 37, "native": 6, "adapted": 2}),
                 Counter(entry.conversion for entry in manifest.sources),
             )
             self.assertEqual(
@@ -535,6 +588,11 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
                 )
                 for dependency in entry.dependencies:
                     self.assertIn(f"- `{dependency}`", text, entry.source)
+
+            for entry in manifest.promoted:
+                generated[entry.output] = (
+                    output / entry.output / "SKILL.md"
+                ).read_text(encoding="utf-8")
 
             group_markers = {
                 "context-keeper": ".codex/sessions/",
@@ -650,11 +708,20 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
                 ("agent-reach", "references/dev.md"),
                 ("context-keeper", "scripts/new-session.sh"),
                 ("here-now", "references/REFERENCE.md"),
+                ("graphify", "references/add-watch.md"),
+                ("graphify", "references/exports.md"),
+                ("graphify", "references/extraction-spec.md"),
+                ("graphify", "references/github-and-merge.md"),
+                ("graphify", "references/hooks.md"),
+                ("graphify", "references/query.md"),
+                ("graphify", "references/transcribe.md"),
+                ("graphify", "references/update.md"),
                 ("last30days", "references/save-html-brief.md"),
                 ("last30days", "scripts/lib/providers.py"),
                 ("last30days", "scripts/watchlist.py"),
                 ("skill-miner", "BACKLOG.md"),
                 ("skill-miner", "REFERENCE.md"),
+                ("skills-librarian", "scripts/audit.py"),
                 ("the-rebuild", "REFERENCE.md"),
                 ("signal-mine", "verticals/ssdi-work-fear.md"),
             }

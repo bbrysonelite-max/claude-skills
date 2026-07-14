@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graphify"
+  short_description: "Use for any question about a codebase, its architecture..."
+  default_prompt: "Use $graphify to handle this request using its documented workflow."

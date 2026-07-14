@@ -1,16 +1,16 @@
 # Codex Skills Validation
 
-- **Observed date:** 2026-07-13
-- **Structural fingerprint:** `3e6c0506afec65f9d91c296144b930cad7854d8fe0f265cbce7005d8f1d361cc`
+- **Observed date:** 2026-07-14
+- **Structural fingerprint:** `2269f16ec6022d84de3605c7679585b611c79326d95ce490667357e4f96cd731`
 - **Overall:** PASS
-- **Collection:** 58 total; 6 native; 9 adapted; 43 dependency-required
-- **Protected sources:** PASS; 238 files; snapshot SHA-256 `75cb6068de4998477b8ecf7902a8ae2b98f16871406582d89c84ef944b7adccd`
-- **Generated resources:** 88 Markdown; 268 total files
-- **Runtime contracts:** 52 sections; 6 native absences; 43 dependency preflights; 43 no-secret clauses
-- **Official validator:** 58/58 passed
+- **Collection:** 59 total; 6 native; 9 adapted; 44 dependency-required
+- **Protected sources:** PASS; 241 files; snapshot SHA-256 `f3ca4bac9da5a321dcc3a87d63c0a486586dbf01bcbe8eb6f3f73c3284028e69`
+- **Generated resources:** 97 Markdown; 279 total files
+- **Runtime contracts:** 53 sections; 6 native absences; 44 dependency preflights; 44 no-secret clauses
+- **Official validator:** 59/59 passed
 - **Regression suites:** **PASS**
 - **Injected defect checks:** **PASS**; 9/9 detected
-- **Installability:** **PASS**; 57 managed links; 0 approved existing directories; 1 excluded (`last30days`); 58/58 generated names accounted for
+- **Installability:** 58 managed links; 0 approved existing directories; 1 excluded from management/inspection (`last30days`); 59/59 generated names accounted for
 
 ## Schema, Metadata, Runtime, and Resources
 
@@ -18,16 +18,14 @@ Structural/schema validation: **PASS**. Metadata, normalized output parity, Mark
 
 ## Official Validator Execution
 
-Observed execution modes: `offline-cached` 57, `offline-cached-fallback` 1.
-Initial online diagnostic (sanitized): uv PyYAML dependency resolution failed because DNS lookup failed.
-Fallback evidence: online dependency resolution failed, then the cached `UV_OFFLINE=1` environment validated 58/58 skills.
+Observed execution modes: `offline-cached` 59.
 
 ## Regression and Injection Evidence
 
 | Interpreter | Observed tests | Result |
 |---|---:|---|
-| Python 3.14.5 | 302/302 | PASS |
-| Python 3.11.15 | 302/302 | PASS |
+| Python 3.14.5 | 333/333 | PASS |
+| Python 3.11.15 | 333/333 | PASS |
 
 | Injected defect category | Exact injected defect | Detection | Result |
 |---|---|---|---|
@@ -81,6 +79,7 @@ Statuses are non-secret observations only. Connector-dependent does not claim th
 | `gitnexus-impact-analysis` | `GitNexus CLI or MCP` (connector-dependent)<br>`indexed Git repository` (connector-dependent) | connector-dependent |
 | `gitnexus-pr-review` | `GitNexus CLI or MCP` (connector-dependent)<br>`Git repository and PR diff` (connector-dependent) | connector-dependent |
 | `gitnexus-refactoring` | `GitNexus CLI or MCP` (connector-dependent)<br>`indexed Git repository` (connector-dependent) | connector-dependent |
+| `graphify` | `Python 3 with graphifyy installed or package-install access` (not-probed)<br>`read/write access to the target corpus and graphify-out` (not-probed) | partial |
 | `gws-shared` | `connected Google Workspace apps or gws CLI` (connector-dependent)<br>`Google Workspace credentials` (credential-dependent) | credential-dependent |
 | `gws-workflow` | `connected Google Workspace apps or gws CLI` (connector-dependent)<br>`Google Workspace credentials` (credential-dependent) | credential-dependent |
 | `gws-workflow-email-to-task` | `connected Gmail and task apps or gws CLI` (connector-dependent)<br>`Google Workspace credentials` (credential-dependent) | credential-dependent |
@@ -109,10 +108,7 @@ Statuses are non-secret observations only. Connector-dependent does not claim th
 
 ## Personal Installation
 
-- **Read-only validation:** `python3 scripts/validate.py --check --installed /Users/brentbryson/.codex/skills --exclude last30days` passed with 57 managed links, 0 approved existing directories, 1 exclusion, 0 errors, and 0 warnings.
-- **Managed targets:** all 57 installed links remain absolute, direct links to the correspondingly named generated directories in this worktree; every target resolves and contains `SKILL.md`. No link was recreated during remediation.
-- **Explicit exception:** `last30days` remains a real directory. Its complete tree digest is unchanged at `e294507383b773c2372033750130fd1e747e8f75110293da26e328208c0259e5`, and its `SKILL.md` SHA-256 remains `bee461995acc5faf1a9608d2f8c6ea82017995dc7b2bcf525f845331392cd5cf`.
-- **Preservation and cleanup:** no command targeted the excluded directory. No staging, ready, backup, recovery, or `codex-install` debris was found in either the generated collection or personal skill root.
+Personal managed-skill migration is complete: 58 managed links; 0 approved existing directories; 1 excluded from management/inspection (`last30days`).
 
 ## Limitations
 

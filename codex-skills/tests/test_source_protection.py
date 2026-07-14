@@ -13,7 +13,7 @@ class SourceProtectionTests(unittest.TestCase):
     def test_discovers_exact_claude_skill_sources(self):
         sources = discover_source_skills(REPOSITORY_ROOT)
 
-        self.assertEqual(51, len(sources))
+        self.assertEqual(45, len(sources))
         self.assertEqual("agent-reach", sources[0].name)
         self.assertEqual("whitelabel-radar", sources[-1].name)
 
