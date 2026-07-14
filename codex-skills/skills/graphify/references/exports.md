@@ -62,7 +62,7 @@ graphify export graphml
 $(cat graphify-out/.graphify_python) -m graphify.serve graphify-out/graph.json
 ```
 
-This starts a stdio MCP server that exposes tools: `query_graph`, `get_node`, `get_neighbors`, `get_community`, `god_nodes`, `graph_stats`, `shortest_path`. Register the server through the active Codex MCP configuration only when the user requests it. Use the absolute interpreter path printed by `cat graphify-out/.graphify_python` as the command, with `-m graphify.serve /absolute/path/to/graphify-out/graph.json` as arguments. Never print unrelated MCP configuration or secret values.
+This starts a stdio MCP server that exposes tools: `query_graph`, `get_node`, `get_neighbors`, `get_community`, `god_nodes`, `graph_stats`, `shortest_path`. Register the server in `~/.codex/config.toml` only when the user requests it. Use the absolute interpreter path printed by `cat graphify-out/.graphify_python` as the command, with `-m graphify.serve /absolute/path/to/graphify-out/graph.json` as arguments. Never print unrelated MCP configuration or secret values.
 
 ### Step 8 - Token reduction benchmark (only if total_words > 5000)
 

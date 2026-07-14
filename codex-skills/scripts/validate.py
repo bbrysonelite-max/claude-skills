@@ -27,9 +27,14 @@ try:
         SAFE_SKILL_NAME,
         Manifest,
         SkillEntry,
+        discover_source_skills,
         hash_protected_sources,
         load_manifest,
         parse_skill_document,
+    )
+    from scripts.legacy_integrity import (
+        LEGACY_INTEGRITY_PINS,
+        validate_legacy_integrity,
     )
 except ModuleNotFoundError:  # Support direct execution as scripts/validate.py.
     from adapt import validate_generated_markdown  # type: ignore[no-redef]
@@ -43,9 +48,14 @@ except ModuleNotFoundError:  # Support direct execution as scripts/validate.py.
         SAFE_SKILL_NAME,
         Manifest,
         SkillEntry,
+        discover_source_skills,
         hash_protected_sources,
         load_manifest,
         parse_skill_document,
+    )
+    from legacy_integrity import (  # type: ignore[no-redef]
+        LEGACY_INTEGRITY_PINS,
+        validate_legacy_integrity,
     )
 
 
@@ -916,6 +926,29 @@ def _validate_source_hashes(repo_root: Path) -> tuple[int, bool, list[str]]:
     return len(current), not errors, errors
 
 
+def _validate_source_topology(
+    repo_root: Path, manifest: Manifest, errors: list[str]
+) -> None:
+    """Require the current root skill set to match manifest sources exactly."""
+    try:
+        discovered = {path.name for path in discover_source_skills(repo_root)}
+    except OSError as error:
+        errors.append(f"current source topology cannot be discovered: {error}")
+        return
+    declared = {entry.source for entry in manifest.sources}
+    missing = sorted(declared - discovered)
+    unmanifested = sorted(discovered - declared)
+    if missing:
+        errors.append(
+            "manifest source skills missing from current source topology: "
+            + ", ".join(missing)
+        )
+    if unmanifested:
+        errors.append(
+            "unmanifested current source skills: " + ", ".join(unmanifested)
+        )
+
+
 def _validate_manifest_contract(
     manifest: Manifest, errors: list[str]
 ) -> tuple[tuple[str, int], ...]:
@@ -1703,6 +1736,13 @@ def validate_collection(
         errors.append(f"manifest validation failed: {error}")
     else:
         class_counts = _validate_manifest_contract(manifest, errors)
+        _validate_source_topology(root, manifest, errors)
+        legacy_names = tuple(
+            entry.output
+            for entry in manifest.promoted
+            if entry.output in LEGACY_INTEGRITY_PINS
+        )
+        errors.extend(validate_legacy_integrity(root, legacy_names))
 
     if source_only:
         return CollectionReport(

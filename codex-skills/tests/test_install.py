@@ -129,6 +129,54 @@ class InstallTests(unittest.TestCase):
             {path.name: os.readlink(path) for path in self.destination.iterdir()},
         )
 
+    def test_upgrade_from_58_managed_links_adds_only_graphify(self):
+        old_names = tuple(
+            sorted(
+                path.name
+                for path in COLLECTION.iterdir()
+                if path.is_dir() and path.name != "graphify"
+            )
+        )
+        self.assertEqual(58, len(old_names))
+        self.destination.mkdir(parents=True)
+        for name in old_names:
+            (self.destination / name).symlink_to(
+                (COLLECTION / name).resolve(), target_is_directory=True
+            )
+
+        result = install(COLLECTION, self.destination)
+
+        self.assertEqual(("graphify",), result.created)
+        self.assertEqual(58, len(result.unchanged))
+        self.assertEqual((), result.updated)
+        self.assertEqual((), result.errors)
+
+    def test_upgrade_from_old_layout_preserves_last30days_exclusion(self):
+        old_names = tuple(
+            sorted(
+                path.name
+                for path in COLLECTION.iterdir()
+                if path.is_dir() and path.name != "graphify"
+            )
+        )
+        self.destination.mkdir(parents=True)
+        for name in old_names:
+            (self.destination / name).symlink_to(
+                (COLLECTION / name).resolve(), target_is_directory=True
+            )
+        last30days = self.destination / "last30days"
+        original_target = os.readlink(last30days)
+
+        result = install(
+            COLLECTION, self.destination, exclude=("last30days",)
+        )
+
+        self.assertEqual(("graphify",), result.created)
+        self.assertEqual(57, len(result.unchanged))
+        self.assertEqual(("last30days",), result.excluded)
+        self.assertEqual(original_target, os.readlink(last30days))
+        self.assertEqual((), result.errors)
+
     def test_idempotent_plan_rejects_destination_swap_before_open(self):
         from scripts import install as install_module
 

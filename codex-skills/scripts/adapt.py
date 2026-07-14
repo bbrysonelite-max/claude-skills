@@ -469,6 +469,81 @@ For each chunk, use `references/extraction-spec.md` as the exact task contract. 
 Every worker or direct pass receives the same substituted FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH values. Each pass must write valid JSON to its absolute CHUNK_PATH. The main agent remains responsible for checking every chunk result before merge.
 
 """
+_GRAPHIFY_MANDATORY_SOURCE = """**MANDATORY: You MUST use the Agent tool here. Reading files yourself one-by-one is forbidden - it is 5-10x slower. If you do not use the Agent tool you are doing this wrong.**
+
+Before dispatching subagents, print a timing estimate:
+- Load `total_words` and file counts from `graphify-out/.graphify_detect.json`
+- Estimate agents needed: `ceil(uncached_non_code_files / 22)` (chunk size is 20-25)
+- Estimate time: ~45s per agent batch (they run in parallel, so total ≈ 45s × ceil(agents/parallel_limit))
+- Print: "Semantic extraction: ~N files → X agents, estimated ~Ys"
+"""
+_GRAPHIFY_DISPATCH_SOURCE = """**Step B2 - Dispatch ALL subagents in a single message**
+
+Call the Agent tool multiple times IN THE SAME RESPONSE - one call per chunk. This is the only way they run in parallel. If you make one Agent call, wait, then make another, you are doing it sequentially and defeating the purpose.
+
+**IMPORTANT - subagent type:** Always use `subagent_type="general-purpose"`. Do NOT use `Explore` - it is read-only and cannot write chunk files to disk, which silently drops extraction results. General-purpose has Write and Bash access which the subagent needs.
+
+Concrete example for 3 chunks:
+```
+[Agent tool call 1: files 1-15, subagent_type="general-purpose"]
+[Agent tool call 2: files 16-30, subagent_type="general-purpose"]
+[Agent tool call 3: files 31-45, subagent_type="general-purpose"]
+```
+All three in one message. Not three separate messages.
+
+Each subagent receives this exact prompt (substitute FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH).
+
+"""
+_GRAPHIFY_MCP_SOURCE = """This starts a stdio MCP server that exposes tools: `query_graph`, `get_node`, `get_neighbors`, `get_community`, `god_nodes`, `graph_stats`, `shortest_path`. Add to Claude Desktop or any MCP-compatible agent orchestrator so other agents can query the graph live.
+
+To configure in Claude Desktop, add to `claude_desktop_config.json`. Claude Desktop can't run `$(...)`, and under `uv tool install` the system `python3` can't import graphify — so set `command` to the **absolute interpreter path** printed by `cat graphify-out/.graphify_python`:
+```json
+{
+  "mcpServers": {
+    "graphify": {
+      "command": "<absolute path from: cat graphify-out/.graphify_python>",
+      "args": ["-m", "graphify.serve", "/absolute/path/to/graphify-out/graph.json"]
+    }
+  }
+}
+```
+"""
+_GRAPHIFY_MCP_REPLACEMENT = """This starts a stdio MCP server that exposes tools: `query_graph`, `get_node`, `get_neighbors`, `get_community`, `god_nodes`, `graph_stats`, `shortest_path`. Register the server in `~/.codex/config.toml` only when the user requests it. Use the absolute interpreter path printed by `cat graphify-out/.graphify_python` as the command, with `-m graphify.serve /absolute/path/to/graphify-out/graph.json` as arguments. Never print unrelated MCP configuration or secret values.
+"""
+_GRAPHIFY_HOOKS_SOURCE = """# graphify reference: commit hook and native CLAUDE.md integration
+
+Load this when the user asked to install the post-commit hook or wire graphify into a project's CLAUDE.md.
+
+## For git commit hook
+
+Install a post-commit hook that auto-rebuilds the graph after every commit. No background process needed - triggers once per commit, works with any editor.
+
+```bash
+graphify hook install    # install
+graphify hook uninstall  # remove
+graphify hook status     # check
+```
+
+After every `git commit`, the hook detects which code files changed (via `git diff HEAD~1`), re-runs AST extraction on those files, and rebuilds `graph.json` and `GRAPH_REPORT.md`. Doc/image changes are ignored by the hook - run `/graphify --update` manually for those.
+
+If a post-commit hook already exists, graphify appends to it rather than replacing it.
+
+---
+
+## For native CLAUDE.md integration
+
+Run once per project to make graphify always-on in Claude Code sessions:
+
+```bash
+graphify claude install
+```
+
+This writes a `## graphify` section to the local `CLAUDE.md` that instructs Claude to check the graph before answering codebase questions and rebuild it after code changes. No manual `/graphify` needed in future sessions.
+
+```bash
+graphify claude uninstall  # remove the section
+```
+"""
 _GRAPHIFY_HOOKS_RESOURCE = """# graphify reference: commit hook and Codex integration
 
 Load this when the user asks to install the post-commit hook or make graphify part of a Codex project workflow.
@@ -1132,6 +1207,150 @@ def _replace_known_literal(
     return text
 
 
+_GRAPHIFY_SLASH = re.compile(r"(?<![\w.-])/graphify(?=\s|$)")
+_GRAPHIFY_SUBAGENTS = re.compile(r"\bsubagents\b", re.IGNORECASE)
+_GRAPHIFY_SUBAGENT = re.compile(r"\bsubagent\b", re.IGNORECASE)
+
+
+def _replace_graphify_regex(
+    text: str,
+    relative_path: str,
+    pattern: re.Pattern[str],
+    replacement: str,
+    expected_by_path: Mapping[str, int],
+    *,
+    strict: bool,
+) -> str:
+    expected = expected_by_path.get(relative_path, 0)
+    if strict:
+        return _replace_required_regex(
+            "graphify", text, pattern, replacement, expected=expected
+        )
+    return pattern.sub(replacement, text)
+
+
+def _replace_graphify_literal(
+    text: str,
+    relative_path: str,
+    source: str,
+    replacement: str,
+    expected_by_path: Mapping[str, int],
+    *,
+    strict: bool,
+) -> str:
+    return _replace_known_literal(
+        "graphify",
+        text,
+        source,
+        replacement,
+        strict=strict,
+        expected=expected_by_path.get(relative_path, 0),
+    )
+
+
+def _graphify_token_substitutions(
+    text: str, relative_path: str, *, strict: bool
+) -> str:
+    text = _replace_graphify_regex(
+        text,
+        relative_path,
+        _GRAPHIFY_SLASH,
+        "$graphify",
+        {
+            "SKILL.md": 41,
+            "references/add-watch.md": 4,
+            "references/github-and-merge.md": 1,
+            "references/hooks.md": 1,
+            "references/query.md": 6,
+        },
+        strict=strict,
+    )
+    literal_rewrites = (
+        (
+            "`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any other provider key",
+            "credentials for any other provider",
+            {"SKILL.md": 1},
+        ),
+        (
+            "`ANTHROPIC_API_KEY`",
+            "other provider credentials",
+            {"SKILL.md": 1},
+        ),
+        (
+            "Claude vision",
+            "the host image-inspection capability",
+            {"references/add-watch.md": 1},
+        ),
+        ("|claude-cli", "", {"references/github-and-merge.md": 1}),
+        ("Claude Code", "Codex", {"SKILL.md": 1}),
+        ("Claude Desktop", "Codex", {"references/exports.md": 3}),
+        (
+            "claude_desktop_config.json",
+            "~/.codex/config.toml",
+            {"references/exports.md": 1},
+        ),
+        ("CLAUDE.md", "AGENTS.md", {"SKILL.md": 2}),
+    )
+    for source, replacement, counts in literal_rewrites:
+        text = _replace_graphify_literal(
+            text,
+            relative_path,
+            source,
+            replacement,
+            counts,
+            strict=strict,
+        )
+    text = _replace_graphify_regex(
+        text,
+        relative_path,
+        _GRAPHIFY_SUBAGENTS,
+        "workers",
+        {
+            "SKILL.md": 14,
+            "references/transcribe.md": 1,
+            "references/update.md": 2,
+        },
+        strict=strict,
+    )
+    text = _replace_graphify_regex(
+        text,
+        relative_path,
+        _GRAPHIFY_SUBAGENT,
+        "worker",
+        {"SKILL.md": 10, "references/extraction-spec.md": 3},
+        strict=strict,
+    )
+    return _replace_graphify_literal(
+        text,
+        relative_path,
+        "Agent tool",
+        "collaboration capability",
+        {"SKILL.md": 7},
+        strict=strict,
+    )
+
+
+def _replace_graphify_source_literal(
+    text: str,
+    relative_path: str,
+    source: str,
+    replacement: str,
+    *,
+    strict: bool,
+) -> str:
+    adapted_source = _graphify_token_substitutions(
+        source, relative_path, strict=False
+    )
+    return _replace_known_literal(
+        "graphify",
+        text,
+        adapted_source,
+        replacement,
+        strict=strict,
+        expected=1,
+    )
+
+
 def _validate_entry(skill_name: str, spec: AdapterSpec, entry: Any) -> None:
     if entry is None:
         return
@@ -1175,117 +1394,142 @@ def _adapt_named_text(
     )
 
     if skill_name == "graphify":
-        text = re.sub(r"(?<![\w.-])/graphify(?=\s|$)", "$graphify", text)
-        text = text.replace(
-            "`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any other provider key",
-            "credentials for any other provider",
-        )
-        text = text.replace("`ANTHROPIC_API_KEY`", "other provider credentials")
-        text = text.replace("Claude vision", "the host image-inspection capability")
-        text = text.replace("|claude-cli", "")
-        text = text.replace("Claude Code", "Codex")
-        text = text.replace("Claude Desktop", "Codex")
-        text = text.replace("claude_desktop_config.json", "~/.codex/config.toml")
-        text = text.replace("CLAUDE.md", "AGENTS.md")
-        text = text.replace("graphify claude install", "graphify hook install")
-        text = text.replace("graphify claude uninstall", "graphify hook uninstall")
-        text = re.sub(r"\bsubagents\b", "workers", text, flags=re.IGNORECASE)
-        text = re.sub(r"\bsubagent\b", "worker", text, flags=re.IGNORECASE)
-        text = text.replace("Before dispatching any workers", "Before processing chunks")
-        text = text.replace("Only dispatch workers", "Only process chunks")
-        text = text.replace("Wait for all workers.", "Finish all chunk passes.")
-        text = text.replace(
-            "On a host that dispatches workers (e.g. Codex), dispatch them as written "
-            "in Part B. On a host that runs the CLI directly in a terminal and cannot "
-            "dispatch workers",
-            "When Codex collaboration is available, independent chunks may be assigned "
-            "as written in Part B. When collaboration is unavailable",
-        )
-        text = text.replace(
-            "Pass each worker that prompt verbatim with FILE_LIST, CHUNK_NUM, "
-            "TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH substituted, and have it write "
-            "the result to CHUNK_PATH.",
-            "Use that prompt verbatim for every direct pass or worker, substituting "
-            "FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH, and write "
-            "the result to CHUNK_PATH.",
-        )
-        text = text.replace(
-            "If the file is missing, the worker was likely dispatched as read-only "
-            "(Explore type) — print a warning: \"chunk N missing from disk — worker may "
-            "have been read-only. Re-run with general-purpose agent.\" Do not silently skip.",
-            "If the file is missing, print a warning naming the chunk and retry that "
-            "chunk directly with write access. Do not silently skip.",
-        )
-        text = text.replace(
-            "If more than half the chunks failed or are missing, stop and tell the user "
-            "to re-run and ensure `subagent_type=\"general-purpose\"` is used.",
-            "If more than half the chunks failed or are missing, stop and report the "
-            "failed chunk numbers; retry them directly before merging.",
-        )
-        text = text.replace(
-            "Add them to the docs list before dispatching semantic workers in Step 3B",
-            "Add them to the docs list before processing semantic chunks in Step 3B",
-        )
-        text = text.replace("using the Write tool", "using filesystem editing")
-        text = text.replace(
-            "Write resolves relative paths against an undefined cwd",
-            "relative paths can resolve against the wrong working directory",
-        )
         if relative_path == "references/hooks.md":
-            text = _GRAPHIFY_HOOKS_RESOURCE
-        elif relative_path == "references/exports.md":
-            text = re.sub(
-                r"Add to Codex or any MCP-compatible agent orchestrator so other agents "
-                r"can query the graph live\.\n\nTo configure in Codex, add to "
-                r"`~/\.codex/config\.toml`\. Codex can't run `\$\(\.\.\.\)`, and under "
-                r"`uv tool install` the system `python3` can't import graphify — so set "
-                r"`command` to the \*\*absolute interpreter path\*\* printed by "
-                r"`cat graphify-out/\.graphify_python`:\n```json\n.*?\n```",
-                (
-                    "Register the server through the active Codex MCP configuration only "
-                    "when the user requests it. Use the absolute interpreter path printed "
-                    "by `cat graphify-out/.graphify_python` as the command, with `-m "
-                    "graphify.serve /absolute/path/to/graphify-out/graph.json` as arguments. "
-                    "Never print unrelated MCP configuration or secret values."
-                ),
+            text = _replace_known_literal(
+                "graphify",
                 text,
-                flags=re.DOTALL,
+                _GRAPHIFY_HOOKS_SOURCE,
+                _GRAPHIFY_HOOKS_RESOURCE,
+                strict=strict,
+                expected=1,
+            )
+        else:
+            structural_sources = {
+                "SKILL.md": (
+                    _GRAPHIFY_MANDATORY_SOURCE,
+                    _GRAPHIFY_DISPATCH_SOURCE,
+                ),
+                "references/exports.md": (_GRAPHIFY_MCP_SOURCE,),
+            }
+            for source in structural_sources.get(relative_path, ()):
+                text = _replace_known_literal(
+                    "graphify",
+                    text,
+                    source,
+                    source,
+                    strict=strict,
+                    expected=1,
+                )
+            text = _graphify_token_substitutions(
+                text, relative_path, strict=strict
+            )
+
+        if relative_path == "references/exports.md":
+            text = _replace_graphify_source_literal(
+                text,
+                relative_path,
+                _GRAPHIFY_MCP_SOURCE,
+                _GRAPHIFY_MCP_REPLACEMENT,
+                strict=strict,
             )
         elif relative_path == "SKILL.md":
-            text = re.sub(
-                r"\*\*MANDATORY: You MUST use the Agent tool here\..*?\*\*\n\n"
-                r"Before dispatching workers, print a timing estimate:\n"
-                r"(?:- [^\n]*\n){4}",
+            text = _replace_graphify_source_literal(
+                text,
+                relative_path,
+                _GRAPHIFY_MANDATORY_SOURCE,
                 _GRAPHIFY_WORKER_SECTION,
-                text,
-                flags=re.DOTALL,
+                strict=strict,
             )
-            text = re.sub(
-                r"\*\*Step B2 - Dispatch ALL workers in a single message\*\*\n.*?"
-                r"Each worker receives this exact prompt \(substitute FILE_LIST, "
-                r"CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH\)\.\n\n",
+            text = _replace_graphify_source_literal(
+                text,
+                relative_path,
+                _GRAPHIFY_DISPATCH_SOURCE,
                 _GRAPHIFY_DISPATCH_SECTION,
-                text,
-                flags=re.DOTALL,
+                strict=strict,
             )
-            text = text.replace(
+            text = _replace_graphify_source_literal(
+                text,
+                relative_path,
                 "**Run Part A (AST) and Part B (semantic) in parallel. Dispatch all "
-                "semantic workers AND start AST extraction in the same message. Both can "
+                "semantic subagents AND start AST extraction in the same message. Both can "
                 "run simultaneously since they operate on different file types. Merge "
                 "results in Part C as before.**",
                 "Start Part A first. When collaboration is available, Part B workers may "
                 "run in parallel because they use different files. Otherwise finish Part "
                 "A, process each semantic chunk directly, then merge in Part C.",
+                strict=strict,
             )
-            text = text.replace(
+            text = _replace_graphify_source_literal(
+                text,
+                relative_path,
                 "After each Agent call completes, read the real token counts from the "
                 "Agent tool result's `usage` field and write them back into the chunk JSON "
                 "before merging",
                 "When collaboration reports token usage, copy those counts into the chunk "
                 "JSON before merging; direct passes should record counts only when the "
                 "runtime exposes them",
+                strict=strict,
             )
-            text = text.replace("Agent tool", "collaboration capability")
+
+        semantic_rewrites = {
+            "SKILL.md": (
+                (
+                    "Before dispatching any subagents",
+                    "Before processing chunks",
+                ),
+                ("Only dispatch subagents", "Only process chunks"),
+                ("Wait for all subagents.", "Finish all chunk passes."),
+                (
+                    "On a host that dispatches subagents (e.g. Claude Code), dispatch them as written "
+                    "in Part B. On a host that runs the CLI directly in a terminal and cannot "
+                    "dispatch subagents",
+                    "When Codex collaboration is available, independent chunks may be assigned "
+                    "as written in Part B. When collaboration is unavailable",
+                ),
+                (
+                    "Pass each subagent that prompt verbatim with FILE_LIST, CHUNK_NUM, "
+                    "TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH substituted, and have it write "
+                    "the result to CHUNK_PATH.",
+                    "Use that prompt verbatim for every direct pass or worker, substituting "
+                    "FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH, and write "
+                    "the result to CHUNK_PATH.",
+                ),
+                (
+                    "If the file is missing, the subagent was likely dispatched as read-only "
+                    "(Explore type) — print a warning: \"chunk N missing from disk — subagent may "
+                    "have been read-only. Re-run with general-purpose agent.\" Do not silently skip.",
+                    "If the file is missing, print a warning naming the chunk and retry that "
+                    "chunk directly with write access. Do not silently skip.",
+                ),
+                (
+                    "If more than half the chunks failed or are missing, stop and tell the user "
+                    "to re-run and ensure `subagent_type=\"general-purpose\"` is used.",
+                    "If more than half the chunks failed or are missing, stop and report the "
+                    "failed chunk numbers; retry them directly before merging.",
+                ),
+            ),
+            "references/transcribe.md": (
+                (
+                    "Add them to the docs list before dispatching semantic subagents in Step 3B",
+                    "Add them to the docs list before processing semantic chunks in Step 3B",
+                ),
+            ),
+            "references/extraction-spec.md": (
+                ("using the Write tool", "using filesystem editing"),
+                (
+                    "Write resolves relative paths against an undefined cwd",
+                    "relative paths can resolve against the wrong working directory",
+                ),
+            ),
+        }
+        for source, replacement in semantic_rewrites.get(relative_path, ()):
+            text = _replace_graphify_source_literal(
+                text,
+                relative_path,
+                source,
+                replacement,
+                strict=strict,
+            )
 
     if skill_name in {"doc-keeper", "tiger-doc-keeper"} and relative_path == "SKILL.md":
         direct_workflow = newline.join(

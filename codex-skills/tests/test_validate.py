@@ -474,6 +474,96 @@ class CollectionValidationTests(unittest.TestCase):
         ):
             return validate_collection(self.repo, **kwargs)
 
+    def make_242_file_unmanifested_source_fixture(self):
+        from scripts.common import discover_source_skills, hash_protected_sources
+
+        shutil.copy2(
+            REPOSITORY_ROOT / "codex-skills" / "manifest.yaml",
+            self.repo / "codex-skills" / "manifest.yaml",
+        )
+        shutil.copytree(
+            REPOSITORY_ROOT / "codex-skills" / "archived-sources",
+            self.repo / "codex-skills" / "archived-sources",
+        )
+        shutil.rmtree(self.repo / ".agents-backup")
+        shutil.copytree(REPOSITORY_ROOT / ".agents-backup", self.repo / ".agents-backup")
+        for source in discover_source_skills(REPOSITORY_ROOT):
+            shutil.copytree(source, self.repo / source.name)
+        unmanifested = self.repo / "unmanifested-review-source"
+        unmanifested.mkdir()
+        unmanifested.joinpath("SKILL.md").write_text(
+            "---\nname: unmanifested-review-source\n"
+            "description: Reproduces the reviewed source topology bypass.\n"
+            "---\n\n# Unmanifested Review Source\n",
+            encoding="utf-8",
+        )
+        snapshot = hash_protected_sources(self.repo)
+        self.assertEqual(242, len(snapshot))
+        (self.repo / "codex-skills" / "source-hashes.json").write_text(
+            json.dumps(snapshot, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_source_only_rejects_regenerated_242_file_unmanifested_source(self):
+        self.make_242_file_unmanifested_source_fixture()
+
+        report = validate_collection(self.repo, source_only=True)
+
+        self.assertTrue(report.source_hashes_match)
+        self.assertFalse(report.ok)
+        self.assertTrue(
+            any(
+                error
+                == "unmanifested current source skills: unmanifested-review-source"
+                for error in report.errors
+            ),
+            report.errors,
+        )
+
+    def test_source_only_cli_rejects_regenerated_242_file_unmanifested_source(self):
+        self.make_242_file_unmanifested_source_fixture()
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = main(
+                ["--repo", str(self.repo), "--source-only", "--json"]
+            )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(1, exit_code)
+        self.assertTrue(payload["source_hashes_match"])
+        self.assertIn(
+            "unmanifested current source skills: unmanifested-review-source",
+            payload["errors"],
+        )
+
+    def test_source_only_rejects_manifest_source_without_skill_document(self):
+        source = self.repo / "declared-source"
+        source.mkdir()
+        self.write_manifest((source_entry("declared-source"),))
+        from scripts.common import hash_protected_sources
+
+        (self.repo / "codex-skills" / "source-hashes.json").write_text(
+            json.dumps(hash_protected_sources(self.repo), indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("scripts.validate.EXPECTED_SKILL_COUNT", 1),
+            patch("scripts.validate.EXPECTED_SOURCE_COUNT", 1),
+            patch("scripts.validate.EXPECTED_PROMOTED_COUNT", 0),
+            patch(
+                "scripts.validate.EXPECTED_CLASS_COUNTS",
+                {"adapted": 0, "dependency-required": 0, "native": 1},
+            ),
+        ):
+            report = validate_collection(self.repo, source_only=True)
+
+        self.assertIn(
+            "manifest source skills missing from current source topology: declared-source",
+            report.errors,
+        )
+
     def test_collection_reports_extra_and_missing_outputs_together(self):
         self.make_source_and_output("expected")
         shutil.rmtree(self.repo / "codex-skills" / "skills" / "expected")

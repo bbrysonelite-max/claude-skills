@@ -13,6 +13,7 @@ from scripts.common import (
     parse_skill_document,
     render_skill_document,
 )
+from scripts.legacy_integrity import LEGACY_PROMOTED_PROVENANCE
 
 
 CODEX_SKILLS_ROOT = Path(__file__).resolve().parents[1]
@@ -29,19 +30,6 @@ PROMOTED_PROVENANCE = {
     "threat-mitigation-audit": ".agents-backup/gsd-security-auditor.md",
     "ai-evaluation-audit": ".agents-backup/gsd-eval-auditor.md",
 }
-LEGACY_PROMOTED_PROVENANCE = {
-    name: f"codex-skills/archived-sources/{name}/SKILL.md"
-    for name in (
-        "gitnexus-cli",
-        "gitnexus-debugging",
-        "gitnexus-exploring",
-        "gitnexus-guide",
-        "gitnexus-impact-analysis",
-        "gitnexus-pr-review",
-        "gitnexus-refactoring",
-    )
-}
-
 CONTENT_MARKERS = {
     "assumptions-audit": (
         "Confident",

@@ -228,6 +228,59 @@ class AdapterContractTests(unittest.TestCase):
                         entry=entry,
                     )
 
+    def test_graphify_strict_structural_regions_reject_one_word_source_drift(self):
+        cases = (
+            (
+                "mandatory worker policy",
+                "SKILL.md",
+                "Reading files yourself one-by-one is forbidden",
+                "Reading source files yourself one-by-one is forbidden",
+            ),
+            (
+                "dispatch block",
+                "SKILL.md",
+                "This is the only way they run in parallel",
+                "This is the preferred way they run in parallel",
+            ),
+            (
+                "MCP configuration",
+                "references/exports.md",
+                '"mcpServers": {',
+                '"mcp_services": {',
+            ),
+            (
+                "hooks integration",
+                "references/hooks.md",
+                "auto-rebuilds the graph",
+                "automatically rebuilds the graph",
+            ),
+        )
+        for label, relative_path, source, replacement in cases:
+            with self.subTest(label=label):
+                text = (
+                    source_body("graphify")
+                    if relative_path == "SKILL.md"
+                    else source_text("graphify", relative_path)
+                )
+                self.assertEqual(1, text.count(source))
+                drifted = text.replace(source, replacement)
+
+                with self.assertRaisesRegex(ValueError, "source adapter drifted"):
+                    adapt_text(
+                        "graphify",
+                        drifted,
+                        relative_path=relative_path,
+                        entry=self.entries["graphify"],
+                    )
+
+    def test_graphify_mcp_output_has_no_mixed_claude_json_codex_config(self):
+        result = self.adapt_source("graphify", "references/exports.md")
+
+        self.assertIn("~/.codex/config.toml", result)
+        self.assertNotIn("Claude", result)
+        self.assertNotIn("```json", result)
+        self.assertNotIn('"mcpServers"', result)
+
     def test_the_rebuild_reference_resource_is_adapted(self):
         result = self.adapt_source("the-rebuild", "REFERENCE.md")
 

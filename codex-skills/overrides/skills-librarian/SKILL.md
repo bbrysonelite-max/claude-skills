@@ -23,7 +23,7 @@ Audit the installed Codex skill shelf, reconcile its index and parallel manifest
 
 1. Confirm `python3` is available. Set `SHELF="$HOME/.codex/skills"`, `AGENTS="$HOME/.agents"`, `INDEX="$HOME/Desktop/Truth/SKILLS-INDEX.md"`, and `CODEX_SKILLS_REPO` to the parallel repository containing `codex-skills/manifest.yaml`.
 2. Confirm the shelf, agent root, curated index, parallel manifest, and copied scripts exist. If any mandatory dependency is unavailable, stop without changing either collection and report the missing command or path.
-3. Confirm `CODEX_SKILLS_REPO` is Git-backed and has an `origin/main` tracking reference. The helper audits the installed shelf but fetches and compares this generated-shelf repository. A repository behind `origin/main` is stale and fails audit/diff-index; ahead is informational. Use `SKILLS_NO_FETCH=1` only when deliberately offline, which still checks cached refs.
+3. Confirm `CODEX_SKILLS_REPO` is Git-backed and has an `origin/main` tracking reference. The helper audits the installed shelf but fetches and compares this generated-shelf repository. A repository behind `origin/main` is stale and fails audit/diff-index; a fetch failure still runs the cached comparison. Missing or unusable cached refs are unverified and return nonzero. Ahead is informational. Use `SKILLS_NO_FETCH=1` only when deliberately offline: cached comparison still runs, but upstream freshness is unverified without a successful fetch.
 4. Treat audits, index comparisons, and manifest reads as read-only. Require per-item approval before every rename, metadata edit, quarantine move, index edit, or backup mutation.
 5. Keep dump and archive directories separate from the live shelf. Do not classify intentional support directories as cruft merely because they lack `SKILL.md`.
 
@@ -58,7 +58,7 @@ Audit the installed Codex skill shelf, reconcile its index and parallel manifest
 - Read-only until approved. Never rename, edit, move, install, unlink, or back up an item without its approval.
 - Quarantine, never delete. A suspected duplicate remains live until the user approves its move.
 - Do not expose credentials from Git remotes, configs, diffs, or environment variables.
-- Stop when the audit fails unexpectedly, a link target is ambiguous, the index and manifest conflict, the secret scan fails, or the backup branch is not based on a clean default branch.
+- Stop when the audit fails unexpectedly, mirror freshness is unverified, a link target is ambiguous, the index and manifest conflict, the secret scan fails, or the backup branch is not based on a clean default branch.
 
 ## Output Contract
 

@@ -28,6 +28,10 @@ try:
         parse_skill_document,
         render_skill_document,
     )
+    from scripts.legacy_integrity import (
+        LEGACY_PROMOTED_PROVENANCE,
+        validate_legacy_integrity,
+    )
 except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
     from adapt import (  # type: ignore[no-redef]
         adapt_description,
@@ -43,6 +47,10 @@ except ModuleNotFoundError:  # Support direct execution as scripts/build.py.
         load_manifest,
         parse_skill_document,
         render_skill_document,
+    )
+    from legacy_integrity import (  # type: ignore[no-redef]
+        LEGACY_PROMOTED_PROVENANCE,
+        validate_legacy_integrity,
     )
 
 
@@ -106,18 +114,6 @@ AUDIT_PROMOTED_PROVENANCE = {
     "requirements-coverage-audit": ".agents-backup/gsd-nyquist-auditor.md",
     "threat-mitigation-audit": ".agents-backup/gsd-security-auditor.md",
     "ai-evaluation-audit": ".agents-backup/gsd-eval-auditor.md",
-}
-LEGACY_PROMOTED_PROVENANCE = {
-    name: f"codex-skills/archived-sources/{name}/SKILL.md"
-    for name in (
-        "gitnexus-cli",
-        "gitnexus-debugging",
-        "gitnexus-exploring",
-        "gitnexus-guide",
-        "gitnexus-impact-analysis",
-        "gitnexus-pr-review",
-        "gitnexus-refactoring",
-    )
 }
 PROMOTED_PROVENANCE = {
     **AUDIT_PROMOTED_PROVENANCE,
@@ -460,6 +456,9 @@ def _validate_promoted(
                     f"legacy promoted entry {entry.output} must use a "
                     "dependency-required contract"
                 )
+            integrity_errors = validate_legacy_integrity(repo_root, (entry.output,))
+            if integrity_errors:
+                raise ValueError(integrity_errors[0])
         elif entry.conversion != "adapted" or entry.dependencies:
             raise ValueError(
                 f"audit promoted entry {entry.output} must use adapted conversion "

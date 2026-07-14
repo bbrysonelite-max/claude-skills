@@ -86,38 +86,59 @@ def git(*a, timeout=25):
 def sync_check():
     """Is the live shelf current with its mirror? Returns (level, message).
 
-    level: 'ok' | 'info' | 'issue' | 'skip'
+    level: 'ok' | 'info' | 'issue' | 'unverified'
     BEHIND origin/main => 'issue': the shelf is missing skills that exist on another machine.
     AHEAD only         => 'info': local skills not yet backed up. Normal (and true right after
                           backup.sh --confirm, which parks the tree on a librarian-sync-* branch).
     """
     if git("rev-parse", "--git-dir")[0] != 0:
-        return "skip", f"parallel collection is not a git repo: {REPO}"
+        return "unverified", f"SYNC UNVERIFIED — parallel collection is not a git repo: {REPO}"
 
-    if os.environ.get("SKILLS_NO_FETCH") != "1":
+    degraded = ""
+    if os.environ.get("SKILLS_NO_FETCH") == "1":
+        degraded = "network fetch skipped by SKILLS_NO_FETCH=1"
+    else:
         rc, _ = git("fetch", "--quiet", "origin", timeout=45)
         if rc != 0:
-            return "info", "could not reach origin (offline?) — comparing against CACHED refs; a newer skill may exist upstream"
+            degraded = "origin fetch failed"
 
     # Resolve the mirror's default branch; fall back to origin/main.
     rc, head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     ref = head if rc == 0 and head else "origin/main"
     if git("rev-parse", "--verify", "--quiet", ref)[0] != 0:
-        return "skip", f"no {ref} to compare against"
+        context = f" after {degraded}" if degraded else ""
+        return "unverified", f"SYNC UNVERIFIED — no {ref} to compare against{context}"
 
     rc, behind = git("rev-list", "--count", f"HEAD..{ref}")
     rc2, ahead = git("rev-list", "--count", f"{ref}..HEAD")
     if rc != 0 or rc2 != 0:
-        return "info", f"could not compare HEAD to {ref}"
-    behind, ahead = int(behind or 0), int(ahead or 0)
+        context = f" after {degraded}" if degraded else ""
+        return "unverified", f"SYNC UNVERIFIED — could not compare HEAD to {ref}{context}"
+    try:
+        behind, ahead = int(behind), int(ahead)
+    except ValueError:
+        return "unverified", f"SYNC UNVERIFIED — non-numeric rev-list result for {ref}"
+
+    degraded_suffix = (
+        f"; {degraded}; cached comparison only, so upstream freshness is unverified"
+        if degraded
+        else ""
+    )
 
     if behind:
         return "issue", (f"SHELF IS STALE — {behind} commit(s) behind {ref}"
                          + (f" (and {ahead} ahead)" if ahead else "")
                          + f". Generated skills from newer commits are MISSING locally; this audit "
-                           f"cannot certify the shelf. Fix first:  git -C {REPO} pull --ff-only")
+                           f"cannot certify the shelf. Fix first:  git -C {REPO} pull --ff-only"
+                         + degraded_suffix)
     if ahead:
-        return "info", f"{ahead} commit(s) ahead of {ref} — local skills not yet backed up (normal; run backup.sh)"
+        return "info", (f"{ahead} commit(s) ahead of {ref} — local skills not yet backed up "
+                        f"(normal; run backup.sh){degraded_suffix}")
+    if degraded:
+        return "info", (
+            f"cached comparison confirms HEAD matches {ref}; {degraded}; "
+            "upstream freshness is unverified"
+        )
     return "ok", f"in sync with {ref}"
 
 def live_skills():
@@ -176,14 +197,14 @@ def main():
         level, msg = sync_check()
         print(f"Live skills dir: {SK}")
         print(f"Total skill folders: {len(live)}\n== MIRROR SYNC ==")
-        print({"ok": "  ✓ ", "info": "  · ", "issue": "  ✗ ", "skip": "  – "}[level] + msg)
+        print({"ok": "  ✓ ", "info": "  · ", "issue": "  ✗ ", "unverified": "  ✗ "}[level] + msg)
         print("== INTEGRITY ==")
         for x in issues: print(f"  ✗ {x}")
         if not issues: print("  ✓ clean — 0 integrity issues")
         if ignored: print(f"  (ignored intentional non-skill folders: {', '.join(ignored)})")
-        stale_shelf = level == "issue"
-        total = len(issues) + (1 if stale_shelf else 0)
-        print(f"\nissues: {total}" + ("  (1 = stale shelf; the count above is NOT trustworthy)" if stale_shelf else ""))
+        sync_failure = level in ("issue", "unverified")
+        total = len(issues) + (1 if sync_failure else 0)
+        print(f"\nissues: {total}" + ("  (1 = mirror sync gate; the count above is NOT certified)" if sync_failure else ""))
         sys.exit(1 if total else 0)
 
     elif mode == "inventory":
@@ -197,10 +218,10 @@ def main():
         if not os.path.isfile(INDEX):
             print(f"INDEX not found: {INDEX}"); sys.exit(1)
         level, msg = sync_check()
-        if level in ("issue", "info", "skip"):
-            print(f"== MIRROR SYNC ==\n  {'✗' if level == 'issue' else '·'} {msg}")
-            if level == "issue":
-                print("  REFUSING to diff a stale shelf — the index would be written short. Pull, then re-run.")
+        if level in ("issue", "info", "unverified"):
+            print(f"== MIRROR SYNC ==\n  {'✗' if level in ('issue', 'unverified') else '·'} {msg}")
+            if level in ("issue", "unverified"):
+                print("  REFUSING to diff without a verified current shelf. Restore comparison refs or pull, then re-run.")
                 sys.exit(1)
             print()
         indexed = expand_index_names(open(INDEX, encoding="utf-8", errors="ignore").read()) - IGNORE
