@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ground Truth"
+  short_description: "The first move of every task, and the doctrine every other..."
+  default_prompt: "Use $ground-truth to handle this request using its documented workflow."

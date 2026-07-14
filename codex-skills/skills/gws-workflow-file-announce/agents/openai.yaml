@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gws Workflow File Announce"
+  short_description: "Google Workflow: Announce a Drive file in a Chat space."
+  default_prompt: "Use $gws-workflow-file-announce to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Memory Index"
+  short_description: "Use when the user wants to index a repository into..."
+  default_prompt: "Use $claude-memory-index to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Whitelabel Radar"
+  short_description: "Turns a 30-day trend pulse into a segmented, contactable..."
+  default_prompt: "Use $whitelabel-radar to handle this request using its documented workflow."

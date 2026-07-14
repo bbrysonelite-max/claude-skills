@@ -1,0 +1,4 @@
+interface:
+  display_name: "Intro Page"
+  short_description: "Builds a private, dignified one-page..."
+  default_prompt: "Use $intro-page to handle this request using its documented workflow."

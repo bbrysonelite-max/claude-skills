@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codebase Pattern Mapping"
+  short_description: "Use when an unfamiliar repository or proposed change needs..."
+  default_prompt: "Use $codebase-pattern-mapping to handle this request using its documented workflow."

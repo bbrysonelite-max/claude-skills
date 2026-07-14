@@ -1,0 +1,4 @@
+interface:
+  display_name: "Threat Mitigation Audit"
+  short_description: "Use when a declared threat model or risk register needs..."
+  default_prompt: "Use $threat-mitigation-audit to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Requirements Coverage Audit"
+  short_description: "Use when requirements or acceptance criteria need..."
+  default_prompt: "Use $requirements-coverage-audit to handle this request using its documented workflow."

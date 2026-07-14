@@ -1,0 +1,4 @@
+interface:
+  display_name: "Production Gate Audit"
+  short_description: "Use when auditing a project for production readiness..."
+  default_prompt: "Use $production-gate-audit to handle this request using its documented workflow."

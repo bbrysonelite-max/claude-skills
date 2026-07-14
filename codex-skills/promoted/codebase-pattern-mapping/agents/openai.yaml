@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codebase Pattern Mapping"
+  short_description: "Map repository patterns and integration points"
+  default_prompt: "Use $codebase-pattern-mapping to map relevant repository conventions and analogs."

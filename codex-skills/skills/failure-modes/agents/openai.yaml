@@ -1,0 +1,4 @@
+interface:
+  display_name: "Failure Modes"
+  short_description: "A comprehensive, grounded method (FMEA + pre-mortem +..."
+  default_prompt: "Use $failure-modes to handle this request using its documented workflow."

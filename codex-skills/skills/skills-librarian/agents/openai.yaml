@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skills Librarian"
+  short_description: "Maintain Brent's INSTALLED skill library \u2014 audit..."
+  default_prompt: "Use $skills-librarian to handle this request using its documented workflow."

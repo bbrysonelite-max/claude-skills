@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitnexus Impact Analysis"
+  short_description: "Use when the user wants to know what will break if they..."
+  default_prompt: "Use $gitnexus-impact-analysis to handle this request using its documented workflow."

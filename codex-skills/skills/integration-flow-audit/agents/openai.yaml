@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integration Flow Audit"
+  short_description: "Use when completed work needs an evidence-backed audit of..."
+  default_prompt: "Use $integration-flow-audit to handle this request using its documented workflow."

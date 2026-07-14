@@ -1,0 +1,4 @@
+interface:
+  display_name: "Assumptions Audit"
+  short_description: "Audit assumptions against concrete evidence"
+  default_prompt: "Use $assumptions-audit to identify and assess assumptions in this proposal."

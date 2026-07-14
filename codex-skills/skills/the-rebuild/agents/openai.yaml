@@ -1,0 +1,4 @@
+interface:
+  display_name: "The Rebuild"
+  short_description: "Loads the full strategic context of Brent's comeback \u2014..."
+  default_prompt: "Use $the-rebuild to handle this request using its documented workflow."

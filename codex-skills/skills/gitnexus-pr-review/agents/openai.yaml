@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitnexus Pr Review"
+  short_description: "Use when the user wants to review a pull request, understand..."
+  default_prompt: "Use $gitnexus-pr-review to handle this request using its documented workflow."

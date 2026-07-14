@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gws Workflow Meeting Prep"
+  short_description: "Google Workflow: Prepare for your next meeting: agenda..."
+  default_prompt: "Use $gws-workflow-meeting-prep to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Documentation Claim Verification"
+  short_description: "Use when documentation, release notes, runbooks, or status..."
+  default_prompt: "Use $documentation-claim-verification to handle this request using its documented workflow."

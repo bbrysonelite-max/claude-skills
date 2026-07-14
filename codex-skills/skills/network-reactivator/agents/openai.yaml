@@ -1,0 +1,4 @@
+interface:
+  display_name: "Network Reactivator"
+  short_description: "Runs a one-question-at-a-time process to reactivate an..."
+  default_prompt: "Use $network-reactivator to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Allsup Leads Veterans"
+  short_description: "Run the Allsup VETERANS benefits-gap lead batch \u2014 same..."
+  default_prompt: "Use $allsup-leads-veterans to handle this request using its documented workflow."

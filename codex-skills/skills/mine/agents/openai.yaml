@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mine"
+  short_description: "Run the agnostic Data Mine against a vertical \u2014 find raw..."
+  default_prompt: "Use $mine to handle this request using its documented workflow."

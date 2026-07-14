@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gws Workflow Standup Report"
+  short_description: "Google Workflow: Today's meetings + open tasks as a standup..."
+  default_prompt: "Use $gws-workflow-standup-report to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gws Workflow Weekly Digest"
+  short_description: "Google Workflow: Weekly summary: this week's meetings +..."
+  default_prompt: "Use $gws-workflow-weekly-digest to handle this request using its documented workflow."

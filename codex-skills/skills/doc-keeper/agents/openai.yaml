@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doc Keeper"
+  short_description: "The project-agnostic Document Keeper."
+  default_prompt: "Use $doc-keeper to handle this request using its documented workflow."

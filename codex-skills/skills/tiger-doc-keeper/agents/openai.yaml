@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tiger Doc Keeper"
+  short_description: "The TIGER CLAW Document Keeper."
+  default_prompt: "Use $tiger-doc-keeper to handle this request using its documented workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship It"
+  short_description: "Take a TigerClaw PR from green to live \u2014 watch CI to..."
+  default_prompt: "Use $ship-it to handle this request using its documented workflow."
