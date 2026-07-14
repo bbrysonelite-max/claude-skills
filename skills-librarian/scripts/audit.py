@@ -22,7 +22,11 @@ import os, sys, re, subprocess
 SK = os.environ.get("SKILLS_DIR", os.path.expanduser("~/.claude/skills"))
 INDEX = os.environ.get("SKILLS_INDEX", os.path.expanduser("~/Desktop/Truth/SKILLS-INDEX.md"))
 # Intentional non-skill folders (support bundles etc.) — index-blessed, not cruft. Don't flag/quarantine.
-IGNORE = {"heygen-skills"}
+#   heygen-skills — source bundle the two HeyGen skills symlink into.
+#   codex-skills  — the Codex bridge (manifest/adapters/promoted/tests): mirrors these skills to Codex so
+#                   Brent can keep working when Claude usage limits bite. Blessed 2026-07-13.
+#   docs          — repo docs (docs/superpowers/plans, specs). Not a skill; never was.
+IGNORE = {"heygen-skills", "codex-skills", "docs"}
 # Repo/OS metadata — the shelf is a git-backed backup; these are infrastructure, never skills or cruft.
 REPO_META = {".git", ".gitignore", ".gitattributes", ".github", ".DS_Store", "__pycache__"}
 # Intentional root-level docs (not skills, not cruft) — allowed at the shelf root.
