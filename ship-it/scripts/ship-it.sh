@@ -34,10 +34,35 @@ checks(){ # read-only: poll CI to completion, return its verdict
   gh pr checks "$pr"
 }
 
+# Review bots (Cursor Bugbot et al.) append summary blocks that QUOTE the phrases
+# hygiene_check forbids — that failed the merge-hygiene gate on its own PR after
+# the human prose had already been hyphenated. Strip paired <!-- TAG --> …
+# <!-- /TAG --> blocks so only human-authored text is scanned. An unterminated
+# block falls back to the raw body, so an open marker cannot hide the rest.
+# Mirrored in .github/workflows/merge-hygiene.yml — keep the two in sync.
+strip_bot_blocks(){
+  local raw stripped
+  raw="$(cat)"
+  stripped="$(printf '%s' "$raw" | awk '
+    skip && $0 ~ ("^[[:space:]]*<!--[[:space:]]*/" tag "[[:space:]]*-->[[:space:]]*$") { skip=0; next }
+    skip { next }
+    match($0, /^[[:space:]]*<!--[[:space:]]*[A-Z0-9_]+[[:space:]]*-->[[:space:]]*$/) {
+      t=$0; sub(/^[[:space:]]*<!--[[:space:]]*/,"",t); sub(/[[:space:]]*-->[[:space:]]*$/,"",t)
+      tag=t; skip=1; next
+    }
+    { print }
+    END { if (skip) print "__UNTERMINATED_BOT_BLOCK__" }
+  ')"
+  case "$stripped" in
+    *__UNTERMINATED_BOT_BLOCK__*) printf '%s' "$raw" ;;
+    *) printf '%s' "$stripped" ;;
+  esac
+}
+
 hygiene_check(){ # exits 7 with reason if the PR itself says "don't merge me"
   local pr="$1" title body
   title="$(gh pr view "$pr" --json title -q .title 2>/dev/null)"
-  body="$(gh pr view "$pr" --json body -q .body 2>/dev/null)"
+  body="$(gh pr view "$pr" --json body -q .body 2>/dev/null | strip_bot_blocks)"
   if printf '%s' "$title" | grep -qiE "$PR_HYGIENE_TITLE"; then
     say "[$(ts)] HYGIENE BLOCK: title matches /$PR_HYGIENE_TITLE/i — \"$title\""; exit 7; fi
   if printf '%s' "$body" | grep -qiE "$PR_HYGIENE_BODY"; then
