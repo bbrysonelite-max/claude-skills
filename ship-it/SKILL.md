@@ -26,8 +26,8 @@ A deterministic script does the mechanical parts; you own the **approval gate** 
    `bash scripts/ship-it.sh merge <PR#> --confirm`
    Merges (squash, deletes branch), then confirms `state == MERGED` and captures the merged SHA. Aborts loudly if state isn't MERGED.
 4. **Watch deploy + verify live** (read-only):
-   `bash scripts/ship-it.sh deploy`
-   Watches the latest `deploy.yml` run on main, then polls `api.tigerclaw.io/health` until `build.gitSha` equals the merged SHA **and** `status == ok`. This is the proof the change is actually live — not that a push happened.
+   `bash scripts/ship-it.sh deploy <PR#>`
+   Resolves the merge SHA FRESH from the PR (never a cached value — a stale cache produced a false "LIVE" on 2026-07-20), waits for THAT SHA's `deploy.yml` run, polls `api.tigerclaw.io/health` until `build.gitSha` matches **and** `status == ok`, and — if the PR diff contains migrations — requires the "Successfully applied" line in prod logs. GO prints only on the full chain; it appends the MERGE_LEDGER line and posts it as a PR comment.
 5. **Report the verdict** in your own words: GO (merged SHA live + health ok, with the UTC timestamp) or **PARTIAL** (merged but deploy failed / SHA mismatch / health not ok). Note that the **worker revision can lag** the api deploy — if the change is worker-side, confirm the worker too before calling it done.
 6. **Hand off the doc update.** ship-it does not edit docs. If this closes work, remind Brent (or invoke `doc-keeper` / `truth-keeper`) to log the deploy in VERIFIED.md / SOTU.
 
