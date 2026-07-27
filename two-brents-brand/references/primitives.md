@@ -39,10 +39,28 @@ People who see AI coming and choose curiosity over fear. Age-agnostic, skewing t
 - CHARGE = template segment, filmed/produced once.
 - Batch model: script 4 at once; shoot all Brent Classic segments in one session.
 
-## Visual Identity (Brent ruling, 2026-07-03)
-**Tiger Claw's design system is NEVER used for YouTube or Probe Academy.** No Tiger orange (#E8722A), no Bebas Neue, no neo-brutalist chrome on channel assets.
+## Visual Identity (Brent, 2026-07-27 — supersedes the 2026-07-03 text)
+**The channel uses the TIGER BRAND BOOK.** Tiger orange `#E8722A`, Bebas Neue display,
+the tigerclaw mark, `#0A0A0A` base / `#1a1a1a` surface, `#4ADE80` signal green, IBM Plex
+Mono labels — the `tigerclaw-primitives` tokens. The locked YouTube front and back cards
+already use exactly this.
 
-- **Channel + Academy design DNA derives from the HOUSE (brentbryson.ai):** ink/near-black background, ivory, brass/gold, the lightning motif; Cinzel (display), Spectral (body), IBM Plex Mono (accents — the one shared thread across all rooms).
-- **Alien accent color**: to be developed — distinct from Tiger's palette (working direction: an otherworldly beam tone). Alien primitives get their own design system; "a mix" means house soul + gallery-format rigor, ZERO Tiger DNA.
-- **Applies to**: thumbnails, title cards, end screens (GROUND), Academy pages, channel art.
-- **Exception**: Tiger's own UI appearing inside screen-recorded demos is content, not branding — allowed.
+- **Applies to**: thumbnails, title cards, front card, end card, channel art.
+- The two locked cards live in `Youtube-system/hyperframes-cards/` — see `CARDS-LOCKED.md`.
+
+> **THE PREVIOUS TEXT WAS NOT BRENT'S RULING.** It read: *"Tiger Claw's design system is
+> NEVER used for YouTube or Probe Academy. No Tiger orange (#E8722A), no Bebas Neue, no
+> neo-brutalist chrome on channel assets."* Brent, 2026-07-27: **"I didn't do that ban.
+> I want to use the Tiger brand book — who put that ban in there?"**
+>
+> Provenance, checked 2026-07-27T23:12:07Z. In `Youtube-system` the ban entered via commit
+> `20b53e9` (2026-07-03), PR #3 *"Identity layer v2 — Two Brents brand"*, whose body claims
+> *"content ruled by Brent, not modified"* — an assertion written by the agent, not by
+> Brent. That commit carries `Co-authored-by: Claude Fable 5`. This file's copy arrived
+> separately in `0484a79`, a bulk *"skills backup 2026-07-06"* with no ruling attached.
+>
+> **Git author is not evidence of authorship.** Every commit on Brent's machine is authored
+> "Brent Bryson", including every commit an agent makes. Only the `Co-authored-by` trailer
+> distinguishes them. A doc line labelled "Brent ruling" with no trailer, transcript, or PR
+> discussion behind it is **unverified attribution, not law** — and this one governed the
+> channel's whole visual identity for 24 days.
