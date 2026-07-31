@@ -1230,7 +1230,8 @@ class RealOverrideContractTests(unittest.TestCase):
         for text in (
             'SKILLS_DIR="$HOME/.codex/skills"',
             "SKILLS_INDEX=",
-            'AGENTS_SRC="$HOME/.agents"',
+            'CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO"',
+            '--path "<reviewed-repo-relative-file>"',
             "codex-skills/manifest.yaml",
             "quarantine",
             "per-item approval",
@@ -1238,7 +1239,8 @@ class RealOverrideContractTests(unittest.TestCase):
         ):
             self.assertIn(text, body)
         self.assertNotIn("AGENTS_DIR=", body)
-        self.assertNotIn('AGENTS_SRC="$HOME/.codex/agents"', body)
+        self.assertNotIn("AGENTS_SRC=", body)
+        self.assertNotIn("rsync", body)
 
     def test_local_runtime_overrides_have_exact_dependency_and_blocked_contracts(self):
         expected = {
@@ -1253,7 +1255,8 @@ class RealOverrideContractTests(unittest.TestCase):
                 "Python 3",
                 "local ~/.codex/skills root",
                 "local ~/.agents root",
-                "local ~/Desktop/Truth/SKILLS-INDEX.md",
+                "Git-backed codex-skills/SKILLS-INDEX.md",
+                "codex-skills active profile",
                 "parallel codex-skills manifest repository",
             ),
         }
@@ -1326,19 +1329,30 @@ class RealOverrideContractTests(unittest.TestCase):
             self.assertTrue((output / "skill-miner/REFERENCE.md").is_file())
             self.assertTrue((output / "skills-librarian/scripts/audit.py").is_file())
             self.assertTrue((output / "skills-librarian/scripts/backup.sh").is_file())
+            self.assertEqual(
+                (
+                    CODEX_SKILLS_ROOT
+                    / "adapters/skills-librarian/backup.sh"
+                ).read_bytes(),
+                (output / "skills-librarian/scripts/backup.sh").read_bytes(),
+            )
             librarian = (output / "skills-librarian/SKILL.md").read_text(
                 encoding="utf-8"
             )
-            self.assertIn('AGENTS_SRC="$HOME/.agents"', librarian)
-            self.assertNotIn('AGENTS_SRC="$HOME/.codex/agents"', librarian)
+            self.assertIn(
+                'CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO"', librarian
+            )
+            self.assertIn('--path "<reviewed-repo-relative-file>"', librarian)
+            self.assertNotIn("AGENTS_SRC=", librarian)
 
-    def test_canonical_skills_librarian_uses_exact_agents_source(self):
+    def test_canonical_skills_librarian_uses_path_limited_backup(self):
         librarian = (
             CODEX_SKILLS_ROOT / "skills" / "skills-librarian" / "SKILL.md"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('AGENTS_SRC="$HOME/.agents"', librarian)
-        self.assertNotIn('AGENTS_SRC="$HOME/.codex/agents"', librarian)
+        self.assertIn('CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO"', librarian)
+        self.assertIn('--path "<reviewed-repo-relative-file>"', librarian)
+        self.assertNotIn("AGENTS_SRC=", librarian)
 
 
 if __name__ == "__main__":

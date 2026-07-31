@@ -17,11 +17,10 @@ certify a generated collection whose repository is behind.
 Being AHEAD is normal (new local skills not yet backed up) and is not an error.
 Set SKILLS_NO_FETCH=1 to skip the network call (offline); the behind-check still runs on cached refs.
 """
-import os, sys, re, subprocess
+import json, os, sys, re, subprocess
 from pathlib import Path
 
 SK = os.environ.get("SKILLS_DIR", os.path.expanduser("~/.codex/skills"))
-INDEX = os.environ.get("SKILLS_INDEX", os.path.expanduser("~/Desktop/Truth/SKILLS-INDEX.md"))
 
 def default_parallel_repo():
     """Resolve a symlinked generated skill back to its repository when possible."""
@@ -32,6 +31,12 @@ def default_parallel_repo():
     return os.path.expanduser("~/claude-skills")
 
 REPO = os.environ.get("CODEX_SKILLS_REPO", default_parallel_repo())
+INDEX = os.environ.get(
+    "SKILLS_INDEX", os.path.join(REPO, "codex-skills", "SKILLS-INDEX.md")
+)
+PROFILE = os.environ.get(
+    "SKILLS_PROFILE", os.path.join(REPO, "codex-skills", "active-profile.json")
+)
 # Intentional non-skill folders (support bundles etc.) — index-blessed, not cruft. Don't flag/quarantine.
 #   heygen-skills — source bundle the two HeyGen skills symlink into.
 #   codex-skills  — the Codex bridge (manifest/adapters/promoted/tests): mirrors these skills to Codex so
@@ -42,6 +47,26 @@ IGNORE = {"heygen-skills", "codex-skills", "docs"}
 REPO_META = {".git", ".gitignore", ".gitattributes", ".github", ".DS_Store", "__pycache__"}
 # Intentional root-level docs (not skills, not cruft) — allowed at the shelf root.
 ROOT_DOCS = {"README.md", "AGENTS-CATALOG.md"}
+
+def inactive_skills():
+    """Return (names, error) from the active profile without exposing its details."""
+    try:
+        data = json.loads(Path(PROFILE).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return set(), f"active profile cannot be read: {PROFILE}: {error}"
+    if data.get("schema_version") != 1:
+        return set(), f"active profile has unsupported schema: {PROFILE}"
+    entries = data.get("inactive_skills")
+    if not isinstance(entries, list):
+        return set(), f"active profile must contain inactive_skills: {PROFILE}"
+    names = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            return set(), f"active profile contains an invalid skill: {PROFILE}"
+        names.append(entry["name"])
+    if len(names) != len(set(names)):
+        return set(), f"active profile contains duplicate skills: {PROFILE}"
+    return set(names), None
 
 def frontmatter(path):
     """Return dict of top-level frontmatter keys; description handles >|block scalars."""
@@ -171,9 +196,14 @@ def expand_index_names(text):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "audit"
     live = live_skills()
+    inactive, profile_error = inactive_skills()
 
     if mode == "audit":
         issues, ignored = [], []
+        if profile_error:
+            issues.append(profile_error)
+        for name in sorted(set(live) & inactive):
+            issues.append(f"INACTIVE but live: {name}")
         for n, d in live.items():
             sm = os.path.join(d, "SKILL.md")
             if n in IGNORE:
@@ -202,6 +232,7 @@ def main():
         for x in issues: print(f"  ✗ {x}")
         if not issues: print("  ✓ clean — 0 integrity issues")
         if ignored: print(f"  (ignored intentional non-skill folders: {', '.join(ignored)})")
+        print(f"  active profile: {len(inactive)} inactive skill(s)")
         sync_failure = level in ("issue", "unverified")
         total = len(issues) + (1 if sync_failure else 0)
         print(f"\nissues: {total}" + ("  (1 = mirror sync gate; the count above is NOT certified)" if sync_failure else ""))

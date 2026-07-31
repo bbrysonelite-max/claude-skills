@@ -533,7 +533,7 @@ cat > "$COMPETITORS_PLAN_FILE" <<'PLAN_EOF'
 }
 PLAN_EOF
 
-"${LAST30DAYS_PYTHON}" "${SKILL_DIR}/scripts/last30days.py" "{TOPIC_A} vs {TOPIC_B} vs {TOPIC_C}" \
+"${LAST30DAYS_PYTHON}" -B "${SKILL_DIR}/scripts/last30days.py" "{TOPIC_A} vs {TOPIC_B} vs {TOPIC_C}" \
   --emit=compact \
   --save-dir="${LAST30DAYS_MEMORY_DIR}" \
   --save-suffix=v3 \
@@ -832,7 +832,7 @@ if [ ! -f "$SKILL_DIR/scripts/last30days.py" ]; then
   exit 1
 fi
 
-"${LAST30DAYS_PYTHON}" "${SKILL_DIR}/scripts/last30days.py" $ARGUMENTS --emit=compact --save-dir="${LAST30DAYS_MEMORY_DIR}" --save-suffix=v3
+"${LAST30DAYS_PYTHON}" -B "${SKILL_DIR}/scripts/last30days.py" $ARGUMENTS --emit=compact --save-dir="${LAST30DAYS_MEMORY_DIR}" --save-suffix=v3
 ```
 
 **If you ran Steps 0.55 and 0.75 (agent planning), pass the plan via a tmpfile and add the targeting flags:**
@@ -1615,6 +1615,8 @@ Want another prompt? Just tell me what you're creating next.
 Review scripts before first use to verify behavior.
 
 ## Codex Runtime
+
+Run the bundled Python engine with `-B` so imports cannot write bytecode into the validated generated collection.
 
 Never expose or print secret, credential, or token values.
 

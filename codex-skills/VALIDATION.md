@@ -1,16 +1,16 @@
 # Codex Skills Validation
 
-- **Observed date:** 2026-07-14
-- **Structural fingerprint:** `2269f16ec6022d84de3605c7679585b611c79326d95ce490667357e4f96cd731`
+- **Observed date:** 2026-07-30
+- **Structural fingerprint:** `f8c2669d4b89bef01fbd7c9bedfd7dac4fd494ad760dbc7ad4307171e401ae83`
 - **Overall:** PASS
 - **Collection:** 59 total; 6 native; 9 adapted; 44 dependency-required
-- **Protected sources:** PASS; 241 files; snapshot SHA-256 `f3ca4bac9da5a321dcc3a87d63c0a486586dbf01bcbe8eb6f3f73c3284028e69`
+- **Protected sources:** PASS; 241 files; snapshot SHA-256 `46c6492d2c62a2f801203ee96a001eeb08ac0faf2745a4945b450406bd3b7d75`
 - **Generated resources:** 97 Markdown; 279 total files
 - **Runtime contracts:** 53 sections; 6 native absences; 44 dependency preflights; 44 no-secret clauses
 - **Official validator:** 59/59 passed
 - **Regression suites:** **PASS**
 - **Injected defect checks:** **PASS**; 9/9 detected
-- **Installability:** 58 managed links; 0 approved existing directories; 1 excluded from management/inspection (`last30days`); 59/59 generated names accounted for
+- **Installability:** generated names and resources validated; personal installation not inspected
 
 ## Schema, Metadata, Runtime, and Resources
 
@@ -18,14 +18,14 @@ Structural/schema validation: **PASS**. Metadata, normalized output parity, Mark
 
 ## Official Validator Execution
 
-Observed execution modes: `offline-cached` 59.
+Observed execution modes: `online` 59.
 
 ## Regression and Injection Evidence
 
 | Interpreter | Observed tests | Result |
 |---|---:|---|
-| Python 3.14.5 | 333/333 | PASS |
-| Python 3.11.15 | 333/333 | PASS |
+| Python 3.14.5 | 341/341 | PASS |
+| Python 3.11.15 | 341/341 | PASS |
 
 | Injected defect category | Exact injected defect | Detection | Result |
 |---|---|---|---|
@@ -45,7 +45,7 @@ Observed execution modes: `offline-cached` 59.
 |---|---:|---|---|
 | python | 80 | Python 3.11.15 (/Users/brentbryson/.local/bin/python3.11)<br>Python 3.14.5 (/usr/local/bin/python3) | PASS |
 | shell | 12 | GNU bash, version 3.2.57(1)-release (x86_64-apple-darwin25) (/bin/bash) | PASS |
-| javascript | 1 | v25.2.1 (/usr/local/bin/node) | PASS |
+| javascript | 1 | v22.23.1 (/usr/local/bin/node) | PASS |
 
 Python resources were compiled with the default `python3` and Python 3.11 when available. Shell resources used `bash -n`; JavaScript resources used `node --check` when Node was available. Fixtures, caches, vendored trees, and build outputs were excluded.
 
@@ -97,7 +97,7 @@ Statuses are non-secret observations only. Connector-dependent does not claim th
 | `ship-it` | `tiger-claw-v4-core repository` (connector-dependent)<br>`deployment credentials` (credential-dependent) | credential-dependent |
 | `signal-mine` | `source APIs and credentials` (credential-dependent)<br>`Python script dependencies` (not-probed) | partial |
 | `skill-miner` | `Python 3` (not-probed)<br>`Git` (not-probed)<br>`target Git repository` (connector-dependent)<br>`Codex rollout/session storage` (not-probed) | partial |
-| `skills-librarian` | `Python 3` (not-probed)<br>`local ~/.codex/skills root` (connector-dependent)<br>`local ~/.agents root` (connector-dependent)<br>`local ~/Desktop/Truth/SKILLS-INDEX.md` (connector-dependent)<br>`parallel codex-skills manifest repository` (connector-dependent) | partial |
+| `skills-librarian` | `Python 3` (not-probed)<br>`local ~/.codex/skills root` (connector-dependent)<br>`local ~/.agents root` (connector-dependent)<br>`Git-backed codex-skills/SKILLS-INDEX.md` (not-probed)<br>`codex-skills active profile` (not-probed)<br>`parallel codex-skills manifest repository` (connector-dependent) | partial |
 | `tiger-doc-keeper` | `tiger-claw-v4-core repository` (connector-dependent)<br>`repository documentation checks` (connector-dependent) | connector-dependent |
 | `tiger-leader-hunt` | `last30days skill and data-source credentials` (credential-dependent) | credential-dependent |
 | `tiger-whitepaper` | `Node.js` (available)<br>`Google Chrome` (available) | available |
@@ -108,7 +108,7 @@ Statuses are non-secret observations only. Connector-dependent does not claim th
 
 ## Personal Installation
 
-Personal managed-skill migration is complete: 58 managed links; 0 approved existing directories; 1 excluded from management/inspection (`last30days`).
+Personal migration is pending. No personal skill was changed by this source-sync validation. If managed links point to an earlier generated root, run `python3 scripts/install.py --previous-source <old>/codex-skills/skills --exclude last30days`. The exclusion leaves `last30days` outside installer management and inspection.
 
 ## Limitations
 

@@ -163,7 +163,8 @@ class ManifestTests(unittest.TestCase):
                 "Python 3",
                 "local ~/.codex/skills root",
                 "local ~/.agents root",
-                "local ~/Desktop/Truth/SKILLS-INDEX.md",
+                "Git-backed codex-skills/SKILLS-INDEX.md",
+                "codex-skills active profile",
                 "parallel codex-skills manifest repository",
             ),
         }
