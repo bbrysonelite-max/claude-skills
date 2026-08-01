@@ -253,12 +253,15 @@ class LibrarianSyncAdaptationTests(unittest.TestCase):
         self.assertIn('upstream freshness is unverified', text)
         self.assertNotIn('~/.claude/skills', text)
 
-    def test_librarian_skill_preserves_agents_source_and_parallel_mirror_contract(self):
+    def test_librarian_skill_uses_path_limited_parallel_backup_contract(self):
         text = (CODEX_SKILLS_ROOT / "overrides" / "skills-librarian" / "SKILL.md").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn('AGENTS_SRC="$HOME/.agents"', text)
+        self.assertIn('CODEX_SKILLS_REPO="$CODEX_SKILLS_REPO"', text)
+        self.assertIn('--path "<reviewed-repo-relative-file>"', text)
+        self.assertNotIn("AGENTS_SRC=", text)
+        self.assertNotIn("rsync", text)
         self.assertIn('CODEX_SKILLS_REPO', text)
         self.assertIn('origin/main', text)
         self.assertIn('stale', text.casefold())

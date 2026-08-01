@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "inactive_skills": [
+    {
+      "name": "claude-memory-debug",
+      "reason": "No claude-memory CLI or MCP is installed; Codex memory and context-keeper cover the active harness."
+    },
+    {
+      "name": "claude-memory-index",
+      "reason": "No claude-memory CLI or MCP is installed; Codex memory and context-keeper cover the active harness."
+    },
+    {
+      "name": "claude-memory-search",
+      "reason": "No claude-memory CLI or MCP is installed; Codex memory and context-keeper cover the active harness."
+    },
+    {
+      "name": "claude-memory-status",
+      "reason": "No claude-memory CLI or MCP is installed; Codex memory and context-keeper cover the active harness."
+    },
+    {
+      "name": "gitnexus-cli",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    },
+    {
+      "name": "gitnexus-debugging",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    },
+    {
+      "name": "gitnexus-exploring",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    },
+    {
+      "name": "gitnexus-guide",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    },
+    {
+      "name": "gitnexus-impact-analysis",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    },
+    {
+      "name": "gitnexus-pr-review",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    },
+    {
+      "name": "gitnexus-refactoring",
+      "reason": "No GitNexus CLI or MCP is installed; graphify is the active graph workflow."
+    }
+  ]
+}

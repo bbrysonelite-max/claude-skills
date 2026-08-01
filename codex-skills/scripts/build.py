@@ -87,6 +87,10 @@ GENERATED_ADAPTER_RESOURCES = {
             Path("codex-skills/adapters/skills-librarian/audit.py"),
             Path("scripts/audit.py"),
         ),
+        (
+            Path("codex-skills/adapters/skills-librarian/backup.sh"),
+            Path("scripts/backup.sh"),
+        ),
     ),
 }
 REQUIRED_OVERRIDE_NAMES = frozenset(

@@ -1,0 +1,104 @@
+# Session 3 — Codex Skills Harness Repair (2026-07-30)
+
+Repaired and verified the Codex skills harness, deduplicated discovery roots, restored
+managed indexing and active-profile control, and opened a path-limited backup PR for
+review.
+
+---
+
+## 1. Decisions
+- Use `~/.agents/skills` as the canonical source for the 25 shared HyperFrames/video
+  skills, with both Codex and Claude discovery roots linking to that one source.
+  Keeping byte-identical physical copies in both roots was ruled out.
+- Use `claude-skills/codex-skills/skills` as the generated Codex collection and
+  `active-profile.json` as its installation policy. Keep seven GitNexus and four
+  `claude-memory` skills in source control but inactive until their real CLI or MCP
+  dependencies return; silently exposing unusable skills was ruled out.
+- Replace the standalone Codex `last30days` directory with the generated, Git-backed
+  version. Preserve the old copy in quarantine rather than deleting it.
+- Reconstruct the missing skills index in the Git-backed repository and keep
+  `~/Desktop/Truth/SKILLS-INDEX.md` as a compatibility link. Claiming recovery of the
+  previous taxonomy was ruled out because the old index was not recoverable.
+- Prefer connected GitHub, Gmail, Google Drive, Vercel, Sites, and HeyGen tools. Keep
+  `gws` as the Calendar/Tasks fallback, but do not replace invalid Google credentials
+  without a fresh interactive authorization.
+- Preserve Brent's pre-existing `.gitignore` addition for `.gstack/`. Do not push
+  directly to `main`, merge a backup PR, or delete quarantined material.
+
+## 2. Discoveries
+- The original Codex shelf contained 100 non-system entries. Twenty-five video skills
+  were byte-identical physical duplicates across `.agents` and `.claude`, and the
+  standalone Codex `last30days` copy shadowed the maintained generated version.
+- The GitNexus and `claude-memory` skills had no installed CLI or MCP. `graphifyy` and
+  `cloud-sql-proxy` are also absent and must remain dependency-preflight gates.
+- `~/.local/bin/gws` was a nine-byte `Not Found` stub. Google Workspace CLI 0.22.5 now
+  runs, but the inherited token cache cannot be decrypted and its refresh grant is
+  invalid.
+- The local skills repository was four commits behind `origin/main`. A fast-forward
+  brought in Ship-It truth-chain changes and a corrected Two Brents brand provenance
+  record; the latter required one exact, path-scoped historical-Claude allowlist entry
+  in the Codex adapter.
+- The protected-source validator uses an explicit `source-hashes.json` review snapshot
+  and a structural fingerprint gate. Trusted upstream source changes require refreshing
+  both before installer regression tests can run.
+- The generated librarian backup invocation was not safe or usable in the current
+  harness. As documented, `SKILLS_DIR=~/.codex/skills` was not a Git repository and the
+  script refused. If redirected to the real repository while using the documented
+  `AGENTS_SRC=~/.agents`, its legacy `rsync --delete` step would have removed all 35
+  protected `.agents-backup` provenance files and replaced them with the canonical
+  skill tree. Its unconditional `git add -A` would also have staged Brent's unrelated
+  `.gitignore` change.
+- The Codex-only backup adapter now requires `CODEX_SKILLS_REPO` plus one exact,
+  repeatable `--path` per reviewed file. It rejects traversal, directories, symlinks,
+  gitlinks, dirty indexes, and non-`main` starting branches; stages only the allowlist;
+  scans the staged patch; resets after dry runs; and never mirrors `.agents` content.
+
+## 3. Shipped / changed
+- Opened unmerged review PR
+  `https://github.com/bbrysonelite-max/claude-skills/pull/17` from
+  `librarian-sync-20260731-052850`. The initial path-limited backup commit is
+  `038b8bce24d0bce40ade51f02bce7f3fbf8d37e8`; no merge was attempted.
+- Fast-forwarded local `main` from `543b002` to `ad838eb`, matching `origin/main`
+  before the session edits.
+- Added the global harness policy at `~/AGENTS.md`, the Git-backed
+  `codex-skills/SKILLS-INDEX.md`, `active-profile.json`, and `scripts/sync_active.py`.
+  Added the safe Codex-only librarian backup adapter and updated its override,
+  generated skill, manifest, source hashes, validation report, and regression coverage.
+- Reconciled the live Codex shelf to 89 active skills: 48 active managed outputs,
+  11 intentionally inactive managed outputs, and 41 intentional non-manifest skills.
+- Installed Google Workspace CLI 0.22.5 and replaced the invalid stub without deleting
+  it.
+- Quarantined all replaced material under
+  `~/Desktop/skills:dump/harness-repair-2026-07-30/`, with a manifest. Nothing was
+  deleted.
+
+## 4. Verified vs unverified
+- Verified live: the final validator reports 59/59 official skill validations,
+  Python 3.14.5 regression 341/341, Python 3.11.15 regression 341/341, and injected
+  defects 9/9, with zero errors or warnings. `validate.py --check` returned zero
+  errors.
+- Verified live: the remote-aware librarian reported 89 live skills, zero integrity
+  issues, 11 inactive profile entries, and index counts 89 live / 89 parsed with zero
+  NEW or STALE names. The grouped-index parser remains explicitly approximate.
+- Verified live: all 25 HyperFrames/video names resolve to their `.agents` canonical
+  paths from both discovery roots, and the Codex/Claude skill roots contain zero broken
+  links.
+- Verified live: the backup helper's dry run and confirmed run each staged exactly the
+  same 24 reviewed files, passed the integrity and staged-secret gates, and preserved
+  the protected `.agents-backup` aggregate digest
+  `234d99f25c4c66264dd6a5ffc5220852189de7c55c6abfb3bbdf897732ef690d`.
+  Brent's `.gitignore` change remained unstaged.
+- Verified live: GitHub authentication works, the repository default branch is `main`,
+  PR #17 is OPEN with a CLEAN merge state, GitGuardian passed, and the PR remains
+  unmerged.
+- NOT yet verified: Calendar and Tasks workflows cannot run until `gws auth login`
+  creates fresh credentials. Other dependency-gated skills were not exercised against
+  live services, production systems, or user data.
+- NOT yet complete: PR #17 still needs human review and a separate per-PR merge
+  approval. The closing workflow must not merge it implicitly.
+
+## 5. Open threads / next step
+- Resume here: review PR #17 and merge it only after a separate explicit per-PR
+  approval. Then reauthorize `gws` interactively with `gws auth login` if
+  Calendar/Tasks access is wanted. The quarantined material can be reviewed later; do
+  not delete it as part of the PR.

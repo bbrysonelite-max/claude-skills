@@ -285,8 +285,8 @@
       "promoted_from": null,
       "output": "skills-librarian",
       "conversion": "dependency-required",
-      "dependencies": ["Python 3", "local ~/.codex/skills root", "local ~/.agents root", "local ~/Desktop/Truth/SKILLS-INDEX.md", "parallel codex-skills manifest repository"],
-      "notes": "Audits the installed Codex skill and agent roots, curated index, and parallel manifest while retaining non-destructive approval rules."
+      "dependencies": ["Python 3", "local ~/.codex/skills root", "local ~/.agents root", "Git-backed codex-skills/SKILLS-INDEX.md", "codex-skills active profile", "parallel codex-skills manifest repository"],
+      "notes": "Audits the installed Codex skill and agent roots, Git-backed index, active profile, and parallel manifest while retaining non-destructive approval rules."
     },
     {
       "source": "the-rebuild",

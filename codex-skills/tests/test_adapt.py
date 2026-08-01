@@ -5,7 +5,12 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
-from scripts.adapt import ADAPTER_REGISTRY, adapt_description, adapt_text
+from scripts.adapt import (
+    ADAPTER_REGISTRY,
+    adapt_description,
+    adapt_text,
+    validate_generated_markdown,
+)
 from scripts.build import build_collection
 from scripts.common import (
     Manifest,
@@ -407,6 +412,13 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("current runtime", result)
         self.assertNotIn("CLAUDE_SESSION_ID", reference)
         self.assertIn("last30days-synthesis-$$.md", reference)
+        self.assertEqual(
+            2,
+            result.count(
+                '"${LAST30DAYS_PYTHON}" -B '
+                '"${SKILL_DIR}/scripts/last30days.py"'
+            ),
+        )
 
     def test_claude_memory_status_uses_toml_aware_codex_config_check(self):
         result = self.adapt_source("claude-memory-status")
@@ -441,7 +453,9 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("live dir IS the work tree Codex loads from", librarian)
         self.assertNotIn("live dir IS the work tree Claude loads from", librarian)
         self.assertIn("`AGENTS_DIR=~/.agents`", librarian)
-        self.assertIn("`AGENTS_SRC=~/.agents`", librarian)
+        self.assertIn("`CODEX_SKILLS_REPO`", librarian)
+        self.assertIn("explicit reviewed `--path`", librarian)
+        self.assertNotIn("`AGENTS_SRC=", librarian)
         self.assertNotIn("~/.claude/agents/", librarian)
         self.assertIn("In Brent's ~/.codex/skills stack", brand)
         self.assertNotIn("In Brent's ~/.claude/skills stack", brand)
@@ -449,6 +463,19 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIn("read-only", miner_reference)
         self.assertIn("historical", vault)
         self.assertIn("read-only", vault)
+
+    def test_two_brents_brand_preserves_historical_claude_provenance(self):
+        result = self.adapt_source(
+            "two-brents-brand", "references/primitives.md"
+        )
+        validate_generated_markdown(
+            "two-brents-brand", "references/primitives.md", result
+        )
+
+        self.assertIn(
+            "That commit carries `Co-authored-by: Claude Fable 5`.",
+            result,
+        )
 
     def test_exact_runtime_wording_count_drift_fails_visibly(self):
         cases = (
@@ -722,6 +749,7 @@ class AdapterBuildIntegrationTests(unittest.TestCase):
                 ("skill-miner", "BACKLOG.md"),
                 ("skill-miner", "REFERENCE.md"),
                 ("skills-librarian", "scripts/audit.py"),
+                ("skills-librarian", "scripts/backup.sh"),
                 ("the-rebuild", "REFERENCE.md"),
                 ("signal-mine", "verticals/ssdi-work-fear.md"),
             }

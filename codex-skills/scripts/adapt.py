@@ -177,7 +177,8 @@ _ADAPTERS = {
             "Python 3",
             "local ~/.codex/skills root",
             "local ~/.agents root",
-            "local ~/Desktop/Truth/SKILLS-INDEX.md",
+            "Git-backed codex-skills/SKILLS-INDEX.md",
+            "codex-skills active profile",
             "parallel codex-skills manifest repository",
         ),
     ),
@@ -358,6 +359,11 @@ _ALLOWED_CLAUDE_LINES: Mapping[tuple[str, str], frozenset[str]] = MappingProxyTy
         ("doc-keeper", "SKILL.md"): frozenset(
             {
                 "Treat historical `.claude/sessions/` files as read-only evidence; never write new snapshots there.",
+            }
+        ),
+        ("two-brents-brand", "references/primitives.md"): frozenset(
+            {
+                "> Brent. That commit carries `Co-authored-by: Claude Fable 5`. This file's copy arrived",
             }
         ),
         ("tiger-doc-keeper", "SKILL.md"): frozenset(
@@ -780,6 +786,16 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
         ExpectedRewrite(
             re.compile(re.escape("~/.claude/skills")), 1, "~/.codex/skills"
         ),
+        ExpectedRewrite(
+            re.compile(re.escape("dead symlinks)")),
+            1,
+            "dead symlinks, inactive-profile leaks)",
+        ),
+        ExpectedRewrite(
+            re.compile(re.escape("~/Desktop/Truth/SKILLS-INDEX.md")),
+            1,
+            "the Git-backed codex-skills/SKILLS-INDEX.md",
+        ),
     ),
     ("two-brents-brand", "SKILL.md"): (
         ExpectedRewrite(
@@ -1080,6 +1096,17 @@ _SOURCE_REWRITES: Mapping[tuple[str, str], tuple[ExpectedRewrite, ...]] = {
             ),
             2,
             "",
+        ),
+        ExpectedRewrite(
+            re.compile(
+                re.escape(
+                    '"${LAST30DAYS_PYTHON}" '
+                    '"${SKILL_DIR}/scripts/last30days.py"'
+                )
+            ),
+            2,
+            '"${LAST30DAYS_PYTHON}" -B '
+            '"${SKILL_DIR}/scripts/last30days.py"',
         ),
         ExpectedRewrite(
             re.compile(r"(?m)^WebSearch\((\".*\")\)$"),
@@ -1705,12 +1732,14 @@ def _runtime_details(skill_name: str) -> list[str]:
         if skill_name == "skills-librarian":
             details.extend(
                 (
-                    "Set `SKILLS_DIR=~/.codex/skills` when invoking copied audit or "
-                    "backup helpers so their preserved source defaults cannot select a "
-                    "legacy shelf.",
+                    "Set `SKILLS_DIR=~/.codex/skills` when invoking the copied audit "
+                    "helper so its preserved source default cannot select a legacy "
+                    "shelf.",
                     "Set `AGENTS_DIR=~/.agents` for current Codex agent definitions.",
-                    "Set `AGENTS_SRC=~/.agents` when invoking the copied backup helper "
-                    "so it mirrors those definitions.",
+                    "Invoke the copied backup helper with `CODEX_SKILLS_REPO` set to "
+                    "the parallel repository root and one explicit reviewed `--path` "
+                    "argument per repository-relative file. Never mirror `~/.agents` "
+                    "into the protected `.agents-backup` provenance tree.",
                 )
             )
     if skill_name in _BROWSER_SKILLS:
@@ -1728,6 +1757,11 @@ def _runtime_details(skill_name: str) -> list[str]:
                 "Never expose credentials or tokens. Confirm with the user immediately "
                 "before any mutation, send, create, update, or delete operation.",
             )
+        )
+    if skill_name == "last30days":
+        details.append(
+            "Run the bundled Python engine with `-B` so imports cannot write bytecode "
+            "into the validated generated collection."
         )
     if skill_name in _DELEGATION_SKILLS:
         details.append(
