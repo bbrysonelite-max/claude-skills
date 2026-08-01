@@ -204,6 +204,32 @@ class CiWorkflowContractTests(unittest.TestCase):
             "      PYTHONDONTWRITEBYTECODE: 1\n"
             "      GH_TOKEN: ${{ github.token }}\n",
         )
+        job_continue_on_error = replace_once(
+            safe,
+            "  test:\n",
+            "  test:\n    continue-on-error: true\n",
+        )
+        job_if_false = replace_once(
+            safe,
+            "  test:\n",
+            "  test:\n    if: false\n",
+        )
+        unit_step = f"      - run: {REQUIRED_COMMANDS[0]}\n"
+        unit_continue_on_error = replace_once(
+            safe,
+            unit_step,
+            unit_step + "        continue-on-error: true\n",
+        )
+        unit_if_false = replace_once(
+            safe,
+            unit_step,
+            unit_step + "        if: false\n",
+        )
+        pull_request_closed = replace_once(
+            safe,
+            "  pull_request:\n",
+            "  pull_request:\n    types: [closed]\n",
+        )
 
         mutations = (
             ("job permissions", job_permissions, "job-level permissions"),
@@ -215,6 +241,15 @@ class CiWorkflowContractTests(unittest.TestCase):
             ("GH_TOKEN", gh_token, "token references"),
             ("GITHUB_TOKEN", github_token_env, "token references"),
             ("combined reviewer mutation", combined, "job-level permissions"),
+            ("job continue-on-error", job_continue_on_error, "job keys"),
+            ("job if false", job_if_false, "job keys"),
+            (
+                "unit step continue-on-error",
+                unit_continue_on_error,
+                "run step keys",
+            ),
+            ("unit step if false", unit_if_false, "run step keys"),
+            ("pull_request closed only", pull_request_closed, "trigger keys"),
         )
 
         for name, unsafe, expected_failure in mutations:
@@ -258,6 +293,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertEqual(concurrency_value, "")
         self.assertEqual(jobs_value, "")
         self.assertNotIn("env", root, "top-level env blocks are forbidden")
+        self.assertEqual(
+            set(root),
+            {"name", "on", "permissions", "concurrency", "jobs"},
+            "top-level workflow keys must match the CI contract exactly",
+        )
         on_lines = _children(lines, on_index)
         on_mapping = _direct_mapping(on_lines, lines[on_index].indent)
         self.assertEqual(set(on_mapping), {"pull_request", "push"})
@@ -267,6 +307,11 @@ class CiWorkflowContractTests(unittest.TestCase):
             trigger_lines = _children(on_lines, trigger_index)
             trigger_mapping = _direct_mapping(
                 trigger_lines, on_lines[trigger_index].indent
+            )
+            self.assertEqual(
+                set(trigger_mapping),
+                {"branches"},
+                "trigger keys must contain only branches",
             )
             branches_index, branches_value = _one_entry(
                 trigger_mapping, "branches"
@@ -290,6 +335,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         concurrency_mapping = _direct_mapping(
             concurrency_lines, lines[concurrency_index].indent
         )
+        self.assertEqual(
+            set(concurrency_mapping),
+            {"group", "cancel-in-progress"},
+            "concurrency keys must match the CI contract exactly",
+        )
         _, group = _one_entry(concurrency_mapping, "group")
         _, cancel = _one_entry(concurrency_mapping, "cancel-in-progress")
         self.assertIn("github.workflow", group)
@@ -310,6 +360,18 @@ class CiWorkflowContractTests(unittest.TestCase):
             job_mapping,
             "job-level permissions overrides are forbidden",
         )
+        self.assertEqual(
+            set(job_mapping),
+            {
+                "runs-on",
+                "timeout-minutes",
+                "strategy",
+                "defaults",
+                "env",
+                "steps",
+            },
+            "job keys must match the CI contract exactly",
+        )
 
         _, runner = _one_entry(job_mapping, "runs-on")
         _, timeout = _one_entry(job_mapping, "timeout-minutes")
@@ -322,6 +384,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         strategy_mapping = _direct_mapping(
             strategy_lines, job_body[strategy_index].indent
         )
+        self.assertEqual(
+            set(strategy_mapping),
+            {"fail-fast", "matrix"},
+            "strategy keys must match the CI contract exactly",
+        )
         _, fail_fast = _one_entry(strategy_mapping, "fail-fast")
         matrix_index, matrix_value = _one_entry(strategy_mapping, "matrix")
         self.assertEqual(_scalar(fail_fast).lower(), "false")
@@ -329,6 +396,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         matrix_lines = _children(strategy_lines, matrix_index)
         matrix_mapping = _direct_mapping(
             matrix_lines, strategy_lines[matrix_index].indent
+        )
+        self.assertEqual(
+            set(matrix_mapping),
+            {"python-version"},
+            "matrix keys must contain only python-version",
         )
         python_index, python_versions = _one_entry(
             matrix_mapping, "python-version"
@@ -393,11 +465,21 @@ class CiWorkflowContractTests(unittest.TestCase):
             defaults_mapping = _direct_mapping(
                 defaults_lines, scope[defaults_index].indent
             )
+            self.assertEqual(
+                set(defaults_mapping),
+                {"run"},
+                "defaults keys must contain only run",
+            )
             run_index, run_value = _one_entry(defaults_mapping, "run")
             self.assertEqual(run_value, "")
             run_lines = _children(defaults_lines, run_index)
             run_mapping = _direct_mapping(
                 run_lines, defaults_lines[run_index].indent
+            )
+            self.assertEqual(
+                set(run_mapping),
+                {"working-directory"},
+                "defaults.run keys must contain only working-directory",
             )
             _, working_directory = _one_entry(
                 run_mapping, "working-directory"
@@ -419,9 +501,19 @@ class CiWorkflowContractTests(unittest.TestCase):
                 "env", step_mapping, "step-level env blocks are forbidden"
             )
             if "uses" in step_mapping:
+                self.assertEqual(
+                    set(step_mapping),
+                    {"uses", "with"},
+                    "action step keys must contain only uses and with",
+                )
                 _, action = _one_entry(step_mapping, "uses")
                 action_steps.append((_scalar(action), step_mapping, normalized_step))
             if "run" in step_mapping:
+                self.assertEqual(
+                    set(step_mapping),
+                    {"run"},
+                    "run step keys must contain only run",
+                )
                 _, command = _one_entry(step_mapping, "run")
                 run_commands.append(_scalar(command))
 
@@ -442,6 +534,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         checkout_with = _direct_mapping(
             checkout_with_lines, checkout_step[checkout_with_index].indent
         )
+        self.assertEqual(
+            set(checkout_with),
+            {"persist-credentials"},
+            "checkout inputs must contain only persist-credentials",
+        )
         _, persist_credentials = _one_entry(
             checkout_with, "persist-credentials"
         )
@@ -453,6 +550,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         setup_with_lines = _children(setup_step, setup_with_index)
         setup_with = _direct_mapping(
             setup_with_lines, setup_step[setup_with_index].indent
+        )
+        self.assertEqual(
+            set(setup_with),
+            {"python-version"},
+            "setup-python inputs must contain only python-version",
         )
         _, selected_python = _one_entry(setup_with, "python-version")
         self.assertEqual(_scalar(selected_python), "${{ matrix.python-version }}")
