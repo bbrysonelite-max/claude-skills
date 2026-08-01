@@ -1,10 +1,10 @@
 # Codex Skills Validation
 
-- **Observed date:** 2026-07-30
-- **Structural fingerprint:** `f8c2669d4b89bef01fbd7c9bedfd7dac4fd494ad760dbc7ad4307171e401ae83`
+- **Observed date:** 2026-07-31
+- **Structural fingerprint:** `1b52a857c5d664eae60b447a5d6997030365659da89c249771f8ff303deab374`
 - **Overall:** PASS
 - **Collection:** 59 total; 6 native; 9 adapted; 44 dependency-required
-- **Protected sources:** PASS; 241 files; snapshot SHA-256 `46c6492d2c62a2f801203ee96a001eeb08ac0faf2745a4945b450406bd3b7d75`
+- **Protected sources:** PASS; 241 files; snapshot SHA-256 `3ff60306f54ca75551f6f81b2a49b314e5283d78fe3bb25a91656218ac73989c`
 - **Generated resources:** 97 Markdown; 279 total files
 - **Runtime contracts:** 53 sections; 6 native absences; 44 dependency preflights; 44 no-secret clauses
 - **Official validator:** 59/59 passed
@@ -24,8 +24,8 @@ Observed execution modes: `online` 59.
 
 | Interpreter | Observed tests | Result |
 |---|---:|---|
-| Python 3.14.5 | 341/341 | PASS |
-| Python 3.11.15 | 341/341 | PASS |
+| Python 3.14.5 | 347/347 | PASS |
+| Python 3.11.15 | 347/347 | PASS |
 
 | Injected defect category | Exact injected defect | Detection | Result |
 |---|---|---|---|

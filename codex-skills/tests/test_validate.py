@@ -467,6 +467,11 @@ class CollectionValidationTests(unittest.TestCase):
             OfficialValidation(path.name, True, "validated") for path in skill_paths
         )
 
+    def make_official_validator(self):
+        validator = self.repo / "quick_validate.py"
+        validator.write_text("# Test validator fixture.\n", encoding="utf-8")
+        return validator
+
     def validate_fixture(self, **kwargs):
         with patch(
             "scripts.validate.run_official_validation",
@@ -664,6 +669,10 @@ class CollectionValidationTests(unittest.TestCase):
         )
 
         with (
+            patch(
+                "scripts.validate.OFFICIAL_VALIDATOR",
+                self.make_official_validator(),
+            ),
             patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
             patch("scripts.validate.subprocess.run", return_value=failure) as runner,
         ):
@@ -695,6 +704,10 @@ class CollectionValidationTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {}, clear=True),
+            patch(
+                "scripts.validate.OFFICIAL_VALIDATOR",
+                self.make_official_validator(),
+            ),
             patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
             patch(
                 "scripts.validate.subprocess.run",
@@ -722,6 +735,10 @@ class CollectionValidationTests(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {"UV_OFFLINE": "1"}),
+            patch(
+                "scripts.validate.OFFICIAL_VALIDATOR",
+                self.make_official_validator(),
+            ),
             patch("scripts.validate.shutil.which", return_value="/usr/bin/uv"),
             patch("scripts.validate.subprocess.run", return_value=success) as runner,
         ):
