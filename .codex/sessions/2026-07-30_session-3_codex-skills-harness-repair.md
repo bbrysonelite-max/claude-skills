@@ -1,4 +1,4 @@
-# Session 3 - 2026-07-30
+# Session 3 — Codex Skills Harness Repair (2026-07-30)
 
 Repaired and verified the Codex skills harness, deduplicated discovery roots, restored
 managed indexing and active-profile control, and opened a path-limited backup PR for
