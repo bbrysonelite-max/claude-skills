@@ -7,6 +7,14 @@ description: "Run the agnostic Data Mine against a vertical \u2014 find raw \"or
 
 One job: run `datamine` against a named vertical and show the ore. It's a one-liner.
 
+## Before every Mine invocation
+
+Surface this reminder before every Mine run:
+
+> **Last30Days freshness reminder:** Before relying on Last30Days to choose what to mine, check or update the installed skill from `https://github.com/mvanhorn/last30days-skill`. Do not silently update it; if the vertical is already selected, show this reminder and continue.
+
+Last30Days supplies recent market-selection intelligence. Mine produces raw ore, and the refinery turns that raw ore into commercially valuable leads. This reminder is non-blocking for an already-selected vertical and does not authorize an update, credential change, or claim that Last30Days is current without verification.
+
 ## Run it
 
 The Data Mine is the `Datamine` package — GitHub `bbrysonelite-max/Datamine`, and on the iMac at `~/Datamine` (`2020iMac.local`, SSH `brentbryson` w/ `~/.ssh/trashcan`).
