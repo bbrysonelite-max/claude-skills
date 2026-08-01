@@ -2,6 +2,7 @@ import re
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -139,6 +140,94 @@ def _step_mapping(step):
 
 
 class CiWorkflowContractTests(unittest.TestCase):
+    def test_rejects_in_memory_permission_env_and_token_mutations(self):
+        safe = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        def replace_once(source, needle, replacement):
+            self.assertEqual(
+                source.count(needle),
+                1,
+                f"mutation anchor must occur exactly once: {needle!r}",
+            )
+            return source.replace(needle, replacement, 1)
+
+        job_permissions = replace_once(
+            safe,
+            "  test:\n",
+            "  test:\n    permissions:\n      contents: write\n",
+        )
+        top_level_env = replace_once(
+            safe,
+            "\npermissions:\n",
+            "\nenv:\n  PYTHONDONTWRITEBYTECODE: 1\n\npermissions:\n",
+        )
+        step_env = replace_once(
+            safe,
+            f"      - uses: {CHECKOUT_ACTION}\n",
+            f"      - uses: {CHECKOUT_ACTION}\n"
+            "        env:\n"
+            "          PYTHONDONTWRITEBYTECODE: 1\n",
+        )
+        unexpected_job_env = replace_once(
+            safe,
+            "      PYTHONDONTWRITEBYTECODE: 1\n",
+            "      PYTHONDONTWRITEBYTECODE: 1\n"
+            "      UNEXPECTED_ENV: 1\n",
+        )
+        wrong_job_env_value = replace_once(
+            safe,
+            "      PYTHONDONTWRITEBYTECODE: 1\n",
+            "      PYTHONDONTWRITEBYTECODE: 0\n",
+        )
+        group = (
+            "  group: ${{ github.workflow }}-"
+            "${{ github.event.pull_request.number || github.ref }}\n"
+        )
+        github_token = replace_once(
+            safe,
+            group,
+            group.rstrip("\n") + "-${{ github.token }}\n",
+        )
+        gh_token = replace_once(
+            safe,
+            group,
+            group.rstrip("\n") + "-${{ env.GH_TOKEN }}\n",
+        )
+        github_token_env = replace_once(
+            safe,
+            group,
+            group.rstrip("\n") + "-${{ env.GITHUB_TOKEN }}\n",
+        )
+        combined = replace_once(
+            job_permissions,
+            "      PYTHONDONTWRITEBYTECODE: 1\n",
+            "      PYTHONDONTWRITEBYTECODE: 1\n"
+            "      GH_TOKEN: ${{ github.token }}\n",
+        )
+
+        mutations = (
+            ("job permissions", job_permissions, "job-level permissions"),
+            ("top-level env", top_level_env, "top-level env"),
+            ("step env", step_env, "step-level env"),
+            ("unexpected job env", unexpected_job_env, "job env"),
+            ("wrong job env value", wrong_job_env_value, "job env"),
+            ("github.token", github_token, "token references"),
+            ("GH_TOKEN", gh_token, "token references"),
+            ("GITHUB_TOKEN", github_token_env, "token references"),
+            ("combined reviewer mutation", combined, "job-level permissions"),
+        )
+
+        for name, unsafe, expected_failure in mutations:
+            with self.subTest(name=name):
+                mutated_path = Mock()
+                mutated_path.is_file.return_value = True
+                mutated_path.read_text.return_value = unsafe
+                with (
+                    patch.dict(globals(), {"WORKFLOW_PATH": mutated_path}),
+                    self.assertRaisesRegex(AssertionError, expected_failure),
+                ):
+                    self.test_ci_workflow_is_least_privilege_and_runs_all_deterministic_gates()
+
     def test_ci_workflow_is_least_privilege_and_runs_all_deterministic_gates(self):
         self.assertTrue(
             WORKFLOW_PATH.is_file(),
@@ -168,6 +257,7 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertEqual(permissions_value, "")
         self.assertEqual(concurrency_value, "")
         self.assertEqual(jobs_value, "")
+        self.assertNotIn("env", root, "top-level env blocks are forbidden")
         on_lines = _children(lines, on_index)
         on_mapping = _direct_mapping(on_lines, lines[on_index].indent)
         self.assertEqual(set(on_mapping), {"pull_request", "push"})
@@ -215,6 +305,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertEqual(job_value, "")
         job_body = _children(job_lines, job_index)
         job_mapping = _direct_mapping(job_body, job_lines[job_index].indent)
+        self.assertNotIn(
+            "permissions",
+            job_mapping,
+            "job-level permissions overrides are forbidden",
+        )
 
         _, runner = _one_entry(job_mapping, "runs-on")
         _, timeout = _one_entry(job_mapping, "timeout-minutes")
@@ -241,6 +336,24 @@ class CiWorkflowContractTests(unittest.TestCase):
         version_lines = _children(matrix_lines, python_index)
         self.assertEqual(
             _string_list(python_versions, version_lines), ["3.11.15", "3.14.5"]
+        )
+
+        env_index, env_value = _one_entry(job_mapping, "env")
+        self.assertEqual(env_value, "")
+        env_lines = _children(job_body, env_index)
+        env_mapping = _direct_mapping(env_lines, job_body[env_index].indent)
+        self.assertEqual(
+            set(env_mapping),
+            {"PYTHONDONTWRITEBYTECODE"},
+            "job env must contain only PYTHONDONTWRITEBYTECODE",
+        )
+        _, dont_write_bytecode = _one_entry(
+            env_mapping, "PYTHONDONTWRITEBYTECODE"
+        )
+        self.assertEqual(
+            _scalar(dont_write_bytecode),
+            "1",
+            "job env PYTHONDONTWRITEBYTECODE must equal 1",
         )
 
         def effective_nested_value(first_key, second_key):
@@ -302,6 +415,9 @@ class CiWorkflowContractTests(unittest.TestCase):
         run_commands = []
         for step in steps:
             step_mapping, normalized_step = _step_mapping(step)
+            self.assertNotIn(
+                "env", step_mapping, "step-level env blocks are forbidden"
+            )
             if "uses" in step_mapping:
                 _, action = _one_entry(step_mapping, "uses")
                 action_steps.append((_scalar(action), step_mapping, normalized_step))
@@ -347,6 +463,11 @@ class CiWorkflowContractTests(unittest.TestCase):
         self.assertNotRegex(lower, r"\bpip(?:3|x)?\b")
         self.assertNotRegex(lower, r"\buv\b")
         self.assertNotRegex(lower, r"\b(curl|wget|npm|npx|brew|gh|aws|gcloud)\b")
+        self.assertNotRegex(
+            lower,
+            r"\b(?:gh_token|github_token)\b|github\s*\.\s*token\b",
+            "GitHub token references or github.token exposure are forbidden",
+        )
         credential_lines = [
             line.content
             for line in lines
