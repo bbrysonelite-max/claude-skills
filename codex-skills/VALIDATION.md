@@ -24,8 +24,8 @@ Observed execution modes: `online` 59.
 
 | Interpreter | Observed tests | Result |
 |---|---:|---|
-| Python 3.14.5 | 345/345 | PASS |
-| Python 3.11.15 | 345/345 | PASS |
+| Python 3.14.5 | 347/347 | PASS |
+| Python 3.11.15 | 347/347 | PASS |
 
 | Injected defect category | Exact injected defect | Detection | Result |
 |---|---|---|---|
