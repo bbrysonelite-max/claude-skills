@@ -47,9 +47,22 @@ Create a Codex task checklist item per step and work them top to bottom.
    the project has); for the **Tiger Claw** repo use the specialized **`tiger-doc-keeper`**
    (it knows that repo's SOTU/PROGRESS set + doc-CI guards). Leave evergreen process
    docs (AGENTS.md / GROUND_TRUTH-style) alone.
-6. **Memory.** Write the session's durable facts to memory: what shipped, key decisions
-   and *why*, any new working rule. Convert relative dates to absolute. Add/refresh the
-   one-line pointers in `MEMORY.md`. Don't save what the repo/git already records.
+6. **Memory — local AND Jumbo, both, always.**
+   **6a. Local:** write the session's durable facts to this project's memory files: what
+   shipped, key decisions and *why*, any new working rule. Convert relative dates to
+   absolute. Add/refresh the one-line pointers in `MEMORY.md`. Don't save what the
+   repo/git already records.
+   **6b. Jumbo (shared memory):** capture the same durable facts to Jumbo using this
+   harness's brent-dev-memory capture tool (MCP `memory_capture`, or the local capture
+   hook if MCP is absent) — one capture per fact-cluster, not one giant blob. Each
+   capture carries: what shipped with its receipt (sha/tx/UTC), decisions in Brent's own
+   words where he ruled, and any lesson worth other agents knowing. If this session
+   proved an existing Jumbo memory WRONG, supersede it (`memory_supersede`) so the stale
+   fact is retracted, never left beside the correction. **Verify:** the capture returns
+   `accepted_ids` — read them and list them in the close report. **If Jumbo is
+   unreachable, say so loudly in the report (RED line) — a silent skip is a quiet state
+   and forbidden.** Never store counts that rot; store the query that produces them.
+
 7. **Git clean.** End on the project's default branch, pulled up to date, no uncommitted
    changes. Confirm with `git status --short --branch`. (For a skills/library change,
    "clean" means backed up too — see its own backup flow, never a direct push to main.)

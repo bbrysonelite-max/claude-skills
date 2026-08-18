@@ -1,6 +1,6 @@
 ---
 name: closing-ritual
-description: "Run the end-of-session closing ritual on ANY project so a working session ends clean and verified — all work merged, tests green, the project's living docs matching the code (zero drift), durable state saved to memory, git clean, and a short handoff. Project-agnostic: it locates whatever project you worked in and gathers ITS docs (you don't remember anything between sessions — collect the real artifacts). Use when the user says 'close out', 'closing ritual', 'wrap up', 'wind down', 'end of session', 'let's call it', or is otherwise ending a session."
+description: "Run the end-of-session closing ritual on ANY project so a working session ends clean and verified — all work merged, tests green, the project's living docs matching the code (zero drift), durable state saved to memory (local files AND Jumbo shared memory), git clean, and a short handoff. Project-agnostic: it locates whatever project you worked in and gathers ITS docs (you don't remember anything between sessions — collect the real artifacts). Use when the user says 'close out', 'closing ritual', 'wrap up', 'wind down', 'end of session', 'let's call it', or is otherwise ending a session."
 ---
 
 # Closing Ritual
@@ -47,9 +47,20 @@ Create a TodoWrite item per step and work them top to bottom.
    the project has); for the **Tiger Claw** repo use the specialized **`tiger-doc-keeper`**
    (it knows that repo's SOTU/PROGRESS set + doc-CI guards). Leave evergreen process
    docs (CLAUDE.md / AGENTS.md / GROUND_TRUTH-style) alone.
-6. **Memory.** Write the session's durable facts to memory: what shipped, key decisions
-   and *why*, any new working rule. Convert relative dates to absolute. Add/refresh the
-   one-line pointers in `MEMORY.md`. Don't save what the repo/git already records.
+6. **Memory — local AND Jumbo, both, always.**
+   **6a. Local:** write the session's durable facts to this project's memory files: what
+   shipped, key decisions and *why*, any new working rule. Convert relative dates to
+   absolute. Add/refresh the one-line pointers in `MEMORY.md`. Don't save what the
+   repo/git already records.
+   **6b. Jumbo (shared memory):** capture the same durable facts to Jumbo via
+   `memory_capture` (brent-dev-memory MCP) — one capture per fact-cluster, not one giant
+   blob. Each capture carries: what shipped with its receipt (sha/tx/UTC), decisions in
+   Brent's own words where he ruled, and any lesson worth other agents knowing. If this
+   session proved an existing Jumbo memory WRONG, use `memory_supersede` so the stale
+   fact is retracted, never left beside the correction. **Verify:** the tool returns
+   `accepted_ids` — read them and list them in the close report. **If Jumbo is
+   unreachable, say so loudly in the report (RED line) — a silent skip is a quiet state
+   and forbidden.** Never store counts that rot; store the query that produces them.
 7. **Git clean.** End on the project's default branch, pulled up to date, no uncommitted
    changes. Confirm with `git status --short --branch`. (For a skills/library change,
    "clean" means backed up too — see its own backup flow, never a direct push to main.)
