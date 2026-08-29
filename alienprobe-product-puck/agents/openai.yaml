@@ -1,0 +1,4 @@
+interface:
+  display_name: "Alien Probe Product Puck"
+  short_description: "Ground the next products agents will buy"
+  default_prompt: "Use $alienprobe-product-puck to run today’s evidence-backed Alien Probe product-planning check."

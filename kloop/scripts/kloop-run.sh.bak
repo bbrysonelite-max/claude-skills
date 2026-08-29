@@ -1,0 +1,63 @@
+#!/bin/bash
+# kloop-run.sh — run the Karpathy loop with three DIFFERENT model families.
+#
+# Same family in all three roles inflates the judge's scores (repo README + kloop.env).
+# Roles are deliberately split across vendors:
+#   GENERATOR = xAI     (proposes hypotheses)
+#   TARGET    = Moonshot (the thing being evaluated)
+#   JUDGE     = Gemini   (scores it)
+#
+# Usage: kloop-run.sh <workspace-dir> [extra kloop flags...]
+#        kloop-run.sh <workspace-dir> --dry-run
+
+set -uo pipefail
+
+REPO="$HOME/Auto-Research-Loop"
+DIR="${1:-}"
+[ -z "$DIR" ] && { echo "usage: kloop-run.sh <workspace-dir> [flags...]" >&2; exit 1; }
+shift
+
+[ -d "$DIR" ] || { echo "no such workspace: $DIR" >&2; exit 1; }
+[ -f "$REPO/cli/kloop.mjs" ] || { echo "kloop not found at $REPO — clone bbrysonelite-max/Auto-Research-Loop" >&2; exit 1; }
+
+# --- key resolution: Keychain first, then env, then kloop.env. Never echoed. -----
+kc()  { security find-generic-password -a "$USER" -s "$1" -w 2>/dev/null; }
+envf() { grep -E "^ *$1 *=" "$HOME/Desktop/GitSync/kloop.env" 2>/dev/null | head -1 \
+         | sed -E "s/^ *$1 *= *//; s/^[\"']//; s/[\"']? *\$//" | tr -d '\r'; }
+resolve() { local v; v="$(kc "$1")"; [ -z "$v" ] && v="${!1:-}"; [ -z "$v" ] && v="$(envf "$1")"; printf '%s' "$v"; }
+
+GEN_KEY="$(resolve XAI_API_KEY)"
+TGT_KEY="$(resolve MOONSHOT_API_KEY)"
+JDG_KEY="$(resolve GEMINI_API_KEY)"
+
+# --- fail loud, name what is missing -------------------------------------------
+MISSING=""
+[ -z "$GEN_KEY" ] && MISSING="$MISSING XAI_API_KEY(generator)"
+[ -z "$TGT_KEY" ] && MISSING="$MISSING MOONSHOT_API_KEY(target)"
+[ -z "$JDG_KEY" ] && MISSING="$MISSING GEMINI_API_KEY(judge)"
+if [ -n "$MISSING" ]; then
+  echo "MISSING KEYS:$MISSING" >&2
+  echo "Set them in Keychain (security add-generic-password -a \$USER -s NAME -w VALUE -U)," >&2
+  echo "as env vars, or in ~/Desktop/GitSync/kloop.env. Not proceeding on a partial config." >&2
+  exit 1
+fi
+
+echo "workspace : $DIR"
+echo "generator : xAI      grok-4.5"
+echo "target    : Moonshot kimi-k2.6"
+echo "judge     : Gemini   gemini-2.5-flash"
+echo "keys      : all three resolved (values never printed)"
+echo
+
+exec node "$REPO/cli/kloop.mjs" \
+  --dir "$DIR" \
+  --generator-api-key "$GEN_KEY" \
+  --generator-api-url "https://api.x.ai/v1/chat/completions" \
+  --generator-model  "grok-4.5" \
+  --target-api-key   "$TGT_KEY" \
+  --target-api-url   "https://api.moonshot.ai/v1/chat/completions" \
+  --target-model     "kimi-k2.6" \
+  --judge-api-key    "$JDG_KEY" \
+  --judge-api-url    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" \
+  --judge-model      "gemini-2.5-flash" \
+  "$@"
