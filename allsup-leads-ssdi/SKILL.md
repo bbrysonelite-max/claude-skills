@@ -1,6 +1,6 @@
 ---
 name: allsup-leads-ssdi
-description: Run the monthly Allsup SSDI/SSI lead batch — the PROVEN process, end to end. Mines active claimants (Reddit + X, last 30 days), tiers them by claim urgency (best/better/good), writes ALLSUP-LEADS-<date>.csv/.md to the Desktop, builds a browsable "book" (searchable, tier-filterable HTML), publishes it to a permanent here.now link, and drafts the review email to Pat Sullivan (pat@contatta.com) for Brent to send on to Allsup. Use when Brent says "run the Allsup leads", "SSDI leads", "monthly claimant batch", "send Pat the leads", "run the refinery for Allsup", or "pull SSDI claimants". SSDI-ONLY and reachability-graded — never resolve individuals or chase emails/phones. For other (non-sensitive) Allsup verticals, build a separate skill; do NOT widen this one.
+description: "Use when Brent says \"run the Allsup leads\", \"SSDI leads\", \"monthly claimant batch\", \"send Pat the leads\", or \"pull SSDI claimants\". SSDI-only; never resolve individuals. Sibling: /allsup-leads-veterans for the VA benefits-gap batch — keep the two separate; any other Allsup vertical gets a third skill."
 ---
 
 # Allsup Leads — SSDI

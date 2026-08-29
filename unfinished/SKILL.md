@@ -1,6 +1,6 @@
 ---
 name: unfinished
-description: Enumerates every work item that remains UNFINISHED (started, not done), UNVERIFIED (claimed, no receipt), or UNCONFIRMED (awaiting Brent's eyes or word) — swept from ground truth, never from memory alone. Use when Brent says "unskill", "what remains", "what's left", "what's unfinished/unverified/unconfirmed", "open debts", or at session close before a handoff.
+description: "Use when Brent says \"unskill\", \"what remains\", \"what's left\", \"what's unfinished/unverified/unconfirmed\", \"open debts\", or at session close before a handoff — anything that asks what is still owed rather than what got done. Sweeps ground truth for every item that is UNFINISHED (started, not done), UNVERIFIED (claimed, no receipt), or UNCONFIRMED (awaiting his eyes or word). Session-end family: /closing-ritual runs the whole close and calls the others; /context-keeper writes the raw session record; /truth-keeper reconciles the standing docs. This one lists only the open debts — for the session snapshot use /context-keeper instead."
 ---
 
 # The Unfinished Skill
