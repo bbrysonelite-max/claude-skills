@@ -1,48 +1,42 @@
 ---
 name: brents-daily-checks
-description: "Run Brent's complete cross-business daily control panel and return one concise portfolio verdict. Use when Brent says 'daily checks', 'run my daily checks', 'Brent's daily checks', 'morning checks', 'check everything', or asks for the health of all active businesses. Parent orchestrator: integrity first, Alien Probe product-planning, Tiger Claw ops as a separate child, then the rest-of-business list (Money, Mine, Leads, CLAW, WTH, Horror Stories, YouTube longform, YouTube Shorts, Rebuild, Consulting). Do not merge business evidence. If nobody was contacted yesterday the verdict is NO MONEY even if Tiger is green."
+description: "Use when Brent says 'daily checks', 'run my daily checks', 'Brent's daily checks', 'morning checks', 'check everything', or asks for the health of all the active businesses. Parent orchestrator over the whole portfolio. For Tiger-only health use /tigerclaw-daily-checks instead; for Alien Probe product planning use /alienprobe-product-puck instead."
 ---
 
 # Brent's Daily Checks
 
-Run Brent's portfolio-level morning ritual. Keep each business in its own evidence block and return one top-line verdict.
+Portfolio-level morning ritual: every business gets its own evidence block, and Brent gets one top-line verdict. Never blend evidence across businesses — a Tiger failure is not an Alien Probe failure, and an Alien Probe `HOLD` does not make Tiger unhealthy.
 
 ## Boundaries
-
-- Use this skill for generic `daily checks`.
-- Use `tigerclaw-daily-checks` directly only when Brent explicitly asks for Tiger or Tiger Claw checks.
-- Use `alienprobe-product-puck` directly for Alien Probe product planning.
-- Report and flag; do not auto-fix unless Brent separately says `fix it`.
-- Ground every live claim at the live surface with a UTC timestamp.
-- Never let one child failure prevent an independent, safe child check from running. Mark unavailable children `UNVERIFIED`.
+- Report and flag. Do not auto-fix unless Brent separately says `fix it`.
+- One child failing never blocks an independent child. Mark unavailable children `UNVERIFIED` and name the exact missing dependency.
 - Never blend Tiger customers, leads, Mine data, or incidents into Alien Probe product evidence.
 
-## 0. Brent's Daily Checks integrity — always first
+## Receipts
+Every live claim = command + output + UTC stamp, or the row reads `UNVERIFIED`. No relative time words ("earlier", "just now") as proof.
 
+## 0. Integrity — always first
 Read the actual bytes of:
 
-- `/Users/brentbryson/.codex/skills/brents-daily-checks/SKILL.md`
-- `/Users/brentbryson/.codex/skills/alienprobe-product-puck/SKILL.md`
-- `/Users/brentbryson/.codex/skills/tigerclaw-daily-checks/SKILL.md`
-- `/Users/brentbryson/tiger-claw-v4-core/DAILY_CHECKS.md`
+- `~/.claude/skills/brents-daily-checks/SKILL.md`
+- `~/.claude/skills/alienprobe-product-puck/SKILL.md`
+- `~/.claude/skills/tigerclaw-daily-checks/SKILL.md`
+- `~/tiger-claw-v4-core/DAILY_CHECKS.md`
 
 Verify the scope split:
 
 1. This parent references both child skills.
 2. Tiger's skill and canonical procedure contain no Alien Probe planning step.
 3. Alien Probe's skill contains no Tiger operational procedure.
-4. Tiger's `daily:checks` package entrypoint exists.
-5. All three skill frontmatter blocks contain only `name` and `description`.
+4. Tiger's `daily:checks` package entrypoint exists (`~/tiger-claw-v4-core/api/package.json`).
+5. All three frontmatter blocks contain only `name` and `description`.
 
-Do not run the Python skill-creation validator as a daily operational dependency. That validator is a development-time check and may use its own managed environment. Daily integrity must not fail merely because the system Python lacks PyYAML.
+Do NOT run the Python skill-creation validator as a daily dependency — it is a development-time check with its own managed environment. Daily integrity must never fail merely because the system Python lacks PyYAML.
 
-If the split is missing or contradictory, put `BRENT DAILY CHECKS DISARRAY` first in the report. Continue any independent child whose skill is present and readable; never return an all-good verdict.
+If the split is missing or contradictory, put `BRENT DAILY CHECKS DISARRAY` first. Continue any child that is present and readable; never return an all-good verdict.
 
 ## 1. Alien Probe — product puck
-
-Load `/Users/brentbryson/.codex/skills/alienprobe-product-puck/SKILL.md` and run **Daily mode**.
-
-Preserve its five lines exactly:
+Run /alienprobe-product-puck in **Daily mode**. Preserve its five lines exactly:
 
 ```text
 alien_probe_plan  HOLD | ADVANCE | INVESTIGATE
@@ -52,23 +46,17 @@ new_signal        <one meaningful delta or "none">
 planning_action   <one bounded research/planning action; never a build action>
 ```
 
-This is planning and read-only measurement. Do not pay, settle, build, deploy, list, contact a buyer, or touch credentials.
+Planning and read-only measurement only. Do not pay, settle, build, deploy, list, contact a buyer, or touch credentials.
 
 ## 2. Tiger Claw — operational health
+Run /tigerclaw-daily-checks end-to-end against its canonical procedure. Keep its result under its own `Tiger Claw` heading.
 
-Load `/Users/brentbryson/.codex/skills/tigerclaw-daily-checks/SKILL.md` and run it end-to-end against its canonical procedure.
+Tiger `/health` is not a substitute for "FirstTouch actually sent." Green health with no `sent=` in the last 24h is a flag.
 
-Keep its result under a separate `Tiger Claw` heading. A Tiger failure does not change Alien Probe's product verdict, and an Alien Probe `HOLD` does not make Tiger unhealthy.
+## 3. Rest of business (Brent 2026-08-19)
+Separate heading, after the two children. Do not blend these numbers into the Tiger or Alien Probe blocks. Write the filled page to `~/Desktop/HANDOFF/YYYY-MM-DD Daily Check/` (created per run).
 
-Tiger `/health` is not a substitute for "FirstTouch actually sent." If health is green and no `sent=` in the last 24h, flag it.
-
-## 3. Rest of business — list (Brent 2026-08-19)
-
-Run after Alien Probe and Tiger. Separate heading. Do not blend these numbers into Tiger or Alien Probe blocks.
-
-Write the filled page to `~/Desktop/HANDOFF/YYYY-MM-DD Daily Check/`.
-
-If nobody was contacted yesterday → verdict **NO MONEY** even if Tiger is green.
+**If nobody was contacted yesterday → verdict NO MONEY even if Tiger is green.**
 
 | # | Check | Want |
 |---|---|---|
@@ -85,21 +73,18 @@ If nobody was contacted yesterday → verdict **NO MONEY** even if Tiger is gree
 | 11 | **Consulting** | Pat thread · billed work |
 
 Right-kind lead: NM builder/leader, struggling company or looking for a vehicle. Not Debbie. Not a stadium.
-Teaching YouTube: Brent's voice. Second voice only if a few words. Dual-clone format failed the couch test.
+Teaching YouTube: Brent's voice. Second voice only if a few words — the dual-clone format failed the couch test.
 
-Mark any row that could not be grounded `UNVERIFIED`.
+Mark any row you could not ground `UNVERIFIED`.
 
 ## Verdict
+- `ALL GOOD` — integrity passes, every child healthy, at least one human contacted yesterday, no grounded failures.
+- `NO MONEY` — nobody was contacted yesterday, even if Tiger and Alien Probe look fine.
+- `ISSUES` — one or more grounded failures.
+- `PARTIAL` — one or more checks could not be grounded.
+- `DAILY CHECKS DISARRAY` — the parent/child split or a required procedure contradicts itself.
 
-Use one of:
-
-- `ALL GOOD`: integrity passes, every child is healthy, rest-of-business has at least one contacted human yesterday, and no grounded failures.
-- `NO MONEY`: nobody was contacted yesterday (even if Tiger/Alien Probe look fine).
-- `ISSUES`: one or more grounded failures need attention.
-- `PARTIAL`: one or more checks could not be grounded.
-- `DAILY CHECKS DISARRAY`: the parent/child split or a required procedure contradicts itself.
-
-Report in this order:
+Report in this order, most consequential issue first. Short lines, no walls, no raw logs or secrets unless Brent asks for a specific non-secret excerpt.
 
 ```text
 BRENT'S DAILY CHECKS — <verdict> — <UTC timestamp>
@@ -113,30 +98,10 @@ Tiger Claw
 <Tiger daily-check result>
 
 Rest of business
-1 Money
-2 Tiger sends
-3 Mine
-4 Leads
-5 CLAW
-6 WTH
-7 Horror Stories
-8 YouTube longform
-9 YouTube Shorts
-10 Rebuild
-11 Consulting
+1 Money … 11 Consulting   (one line each)
 
 first_action            <one bounded next action or "none">
 ```
 
-Put the most consequential issue first. Do not paste raw logs or secrets unless Brent asks for a specific non-secret excerpt.
-
 ## Dependencies
-
-Mandatory:
-
-- all three installed skill files;
-- Tiger's canonical `DAILY_CHECKS.md`;
-- the Tiger repository `daily:checks` entrypoint; and
-- this parent's section 3 list (also on Desktop as `Daily Check List.md`).
-
-Each child owns its own live-service, authentication, and repository dependencies. If a child dependency is unavailable, mark that child's result `UNVERIFIED` and name the exact missing dependency.
+Mandatory: the three installed skill files above; `~/tiger-claw-v4-core/DAILY_CHECKS.md`; Tiger's `daily:checks` entrypoint; and this section-3 list (also on Desktop as `Daily Check List.md`). Each child owns its own live-service, auth, and repo dependencies.

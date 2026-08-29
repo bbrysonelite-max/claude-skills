@@ -1,6 +1,6 @@
 ---
 name: the-loop
-description: Brent's canonical build-and-debug pipeline — ground-truth audit, spec, plan, independent tests, PR, CI, independent review, HIS merge, live proof, write-down — with hard role separation between builder, reviewer, and test author. Use when Brent says "follow the flow", "the loop", "run the loop", "follow the pipeline", or before ANY non-trivial build, fix, or debug on his projects. Skipping a step is vibe coding; skipping the audit is vibe debugging.
+description: "Use before ANY non-trivial build, fix, or debug on Brent's projects, and when he says \"follow the flow\", \"the loop\", \"run the loop\", \"follow the pipeline\". Also when work is starting without an audit, a spec, independent tests, or an independent review — skipping a step is vibe coding, skipping the audit is vibe debugging. For a confirmed production failure or incident, use /production-debugging-loop instead: this is the build pipeline, that is the closed-loop procedure the pipeline runs at the bug."
 ---
 
 # The Loop
