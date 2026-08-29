@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brent’s Daily Checks"
+  short_description: "Run Brent’s cross-business daily control panel"
+  default_prompt: "Use $brents-daily-checks to run my complete daily checks across each business."
