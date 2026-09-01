@@ -63,7 +63,7 @@ is the door-opener.
 ## Outreach template (leader-to-leader, no grind)
 
 > [Name] - I saw your [specific video/post] on AI for [recruiting/lead-gen]. You're teaching the right
-> thing. I'm Brent Bryson - 36 years, Team Elite at Nu Skin - and I built the agent your students are
+> thing. I'm Brent Bryson - selling since 1989, top rank in network marketing - and I built the agent your students are
 > looking for: it does the follow-up, books the call, keeps every lead warm. Here's me: brentbryson.ai.
 > I'd love to show you a white-labeled version you could put your name on for your team. Worth 15 minutes?
 

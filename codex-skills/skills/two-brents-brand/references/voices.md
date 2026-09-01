@@ -22,7 +22,7 @@
 
 ## AI BRENT (The Clone)
 
-**Who he is:** Post-abduction Brent. Same 35 years of instinct — Subways, Nu Skin, the scars — with the current turned on. Visibly getting smarter across the channel's life (this is a retention arc; reference his growth occasionally).
+**Who he is:** Post-abduction Brent. Same instinct since 1989 — Subways, network marketing, the scars — with the current turned on. Visibly getting smarter across the channel's life (this is a retention arc; reference his growth occasionally).
 
 **How he sounds:**
 - Fast, clean, declarative sentences.

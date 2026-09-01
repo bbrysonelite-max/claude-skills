@@ -23,7 +23,7 @@ Rule: electricity is the TEACHING metaphor (how to think about AI). Abduction is
 
 **Library placement:** In Brent's ~/.codex/skills stack, this skill is the BRAND LAYER. `write-content`, `cadence`, `heygen-video`, and `blotato-post` should draw voice/story/compliance rules from here. What-Is-NuSkin.md remains the canonical Nu Skin reference; this skill imports its fence, never duplicates its contents.
 
-**The Promise (Limitless, reframed safely):** "AI won't make you smarter. It makes your 35 years of experience infinitely more usable." Amplification of what you already have — never a magic pill.
+**The Promise (Limitless, reframed safely):** "AI won't make you smarter. It makes your experience since 1989 infinitely more usable." Amplification of what you already have — never a magic pill.
 
 ## The Two Characters (both appear in EVERY video)
 
@@ -31,7 +31,7 @@ This is a TIME play, not a morality play. Same man, two timelines. The gap betwe
 
 **BRENT CLASSIC (Human Brent):** 66, plainspoken, world-weary, honest about being lost. "What the freaking hell is an agent?" energy. Asks the questions viewers are embarrassed to ask. NOT pathetic — he earned his skepticism the hard way ($600K lesson), and sometimes his old-school instinct is RIGHT, which keeps him dignified and keeps AI Brent honest. He is the viewer.
 
-**AI BRENT (The Clone):** Articulate, confident, smartest one in the room and comfortable about it. Never patronizing — his confidence comes from having done the work. Amused and fond toward Brent Classic, like an old friend who hasn't caught up yet. Slightly wry. Talks in outcomes and patterns. Fast, clean sentences. He is 35 years of instinct at full voltage. He is proof.
+**AI BRENT (The Clone):** Articulate, confident, smartest one in the room and comfortable about it. Never patronizing — his confidence comes from having done the work. Amused and fond toward Brent Classic, like an old friend who hasn't caught up yet. Slightly wry. Talks in outcomes and patterns. Fast, clean sentences. He is instinct since 1989 at full voltage. He is proof.
 
 **Signature line (recurring, audience should learn to finish it):** "I'm just you with the current turned on."
 
@@ -89,7 +89,7 @@ Never inflate; never soften. AI Brent delivering it = third-party edification (i
 
 **Rung 2 — The $25M Rule (Brent's ruling, 2026-07-03):** The $25M / $20M-pin / lifetime-arc claims are permitted publicly ONLY when never attached to Nu Skin by name. "Network marketing" as industry label is fine. Pin imagery only half-cropped.
 
-**Rung 3 — The Tiger Public-Copy Fence (from Tigerclawvebsite-v5, ruling confirmed 2026-07-03: "There are no guarantees"):** Whenever Tiger Claw is named in public content, site rules apply: positioning is "your AI follow-up assistant" (humble, helpful — never "autonomous agents," never "closes deals"). Banned words in public copy: guarantee, income, commissions, rank advancement, Mine, Hive, multi-tenant, and any MLM company name or implied industry affiliation. The 30-day terms exist in product/sales conversations only — NEVER in videos, posts, or pages. Academy education content makes no product claims at all: teach the method, whisper the product.
+**Rung 3 — The Tiger Public-Copy Fence (from Tigerclawvebsite-v5, ruling confirmed 2026-07-03: "There are no guarantees"):** Whenever Tiger Claw is named in public content, site rules apply: positioning is "autonomous AI follow-up agents" (ruling 2026-08-26 — never "assistant," never "closes deals"). Banned words in public copy: guarantee, income, commissions, rank advancement, Mine, Hive, multi-tenant, and any MLM company name or implied industry affiliation. The 30-day terms exist in product/sales conversations only — NEVER in videos, posts, or pages. Academy education content makes no product claims at all: teach the method, whisper the product.
 
 **Universal:**
 - Never promise income results or "get rich with AI." Amplification, not magic.

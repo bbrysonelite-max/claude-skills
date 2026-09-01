@@ -15,7 +15,7 @@ by name. "Network marketing" as industry label is fine. Pin imagery only half-cr
 ## Rung 3 — The Tiger Public-Copy Fence
 
 From Tigerclawvebsite-v5, ruling confirmed 2026-07-03: **"There are no guarantees."** Whenever Tiger
-Claw is named in public content, site rules apply: positioning is "your AI follow-up assistant"
+Claw is named in public content, site rules apply: positioning is "autonomous AI follow-up agents" (ruling 2026-08-26 — never "assistant")
 (humble, helpful — never "autonomous agents," never "closes deals").
 
 **Banned words in public copy:** guarantee, income, commissions, rank advancement, Mine, Hive,
