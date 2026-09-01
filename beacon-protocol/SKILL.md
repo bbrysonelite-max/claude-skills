@@ -22,7 +22,7 @@ BEACON tasks only. If a request concerns Tiger Claw product code, features, or c
 
 > **Credentials never live on a spoke. Commercial claims never live on the hub.** Every spoke page carries a Brent byline + link home.
 
-Known trap: `tigerclaw.io` is a catch-all SPA — every path returns 200 with the homepage. **No corpus content or llms.txt ships there until routing is fixed.** Hub is static and safe.
+Known trap: `tigerclaw.io` is a catch-all SPA — every path returns 200 with the homepage, so a 200 alone proves nothing; verify BODY content. llms.txt SHIPPED and verified real (markdown body, 0 HTML tags, 2026-08-31T08:01:37Z). Hub is static and safe.
 
 ## RULINGS IN FORCE (violations = drift, kill on sight)
 

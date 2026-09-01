@@ -25,7 +25,7 @@ A TIME play, not a morality play. Same man, two timelines. The gap between them 
   lesson) and sometimes his old-school instinct is RIGHT, which keeps him dignified and keeps AI
   Brent honest. He is the viewer.
 - **AI BRENT (The Clone):** Articulate, confident, wry, never patronizing. Amused and fond toward
-  Classic. Talks in outcomes and patterns, fast clean sentences. 35 years of instinct at full
+  Classic. Talks in outcomes and patterns, fast clean sentences. instinct since 1989 at full
   voltage. He is proof.
 - **Signature line (the audience should learn to finish it):** "I'm just you with the current turned
   on."

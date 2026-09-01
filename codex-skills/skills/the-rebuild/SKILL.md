@@ -8,7 +8,7 @@ description: "Loads the full strategic context of Brent's comeback \u2014 rebuil
 Load this before any work on Brent's NuSkin requalification, the Mine / lead-gen for network marketers, the Flip the Script webinar, or putting his contacts into Tiger. This is the context he is tired of re-explaining. Live links + code citations: see [REFERENCE.md](REFERENCE.md).
 
 ## The mission (the revenue anchor)
-Brent is a 25-year NuSkin team lead. Sept 2025 he missed qualification → income dropped ~$60k to ~$15k. He **requalifies** (~half back, ~$30k) by building **ONE leg to 10,000 points of volume**. That number is the north star. **"Clearest path to revenue" is the lens for every decision — park pure engineering.**
+Brent is a 25-year network-marketing team lead. Sept 2025 he missed qualification → income dropped ~$60k to ~$15k. He **requalifies** (~half back, ~$30k) by building **ONE leg to 10,000 points of volume**. That number is the north star. **"Clearest path to revenue" is the lens for every decision — park pure engineering.**
 
 ## The strategy
 Brent + Tiger rebuild that one leg → the rebuild becomes **THE STORY** ("I rebuilt my NuSkin business with AI") → that story raises the next round (recruits, leaders, Tiger buyers) like crazy. **AI is the "tip of the sword" NuSkin doesn't have, and Brent becomes the one who has it.** He is a 40-year warm-market master — recruiting is his deepest skill, NOT a "long game." The only NEW variable is the **prospect source** (his warm market is burned through 3 rebuilds). Sequence: **story first, then seats** — rebuild the leg; the webinar amplifies after.
@@ -37,7 +37,7 @@ Leads live in **tenant-scoped Postgres** (`tenant_leads`), durable and independe
 - Recruiting into NuSkin is his **40-year mastery** — never frame it as the unfamiliar part.
 
 ## Working with Brent (every agent, every turn)
-39-year NM vet, $30M+ earned, **warm-market specialist** — trust his domain calls. **ONE EYE**: ask ONE question at a time, keep replies short and plain. He **dictates** — noun/path typos are common; surface conflicts before saving. He's **in transition with a full head** — be a calm operator's guide, one step at a time, present-before-coding.
+39-year NM vet, $25M+ earned, **warm-market specialist** — trust his domain calls. **ONE EYE**: ask ONE question at a time, keep replies short and plain. He **dictates** — noun/path typos are common; surface conflicts before saving. He's **in transition with a full head** — be a calm operator's guide, one step at a time, present-before-coding.
 
 ## Codex Runtime
 

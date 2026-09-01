@@ -50,7 +50,7 @@ duplicates its contents.
 
 ## The Promise (Limitless, reframed safely)
 
-"AI won't make you smarter. It makes your 35 years of experience infinitely more usable."
+"AI won't make you smarter. It makes your experience since 1989 infinitely more usable."
 Amplification of what you already have — never a magic pill.
 
 ## The Four Message Pillars (every piece of content maps to exactly one)
