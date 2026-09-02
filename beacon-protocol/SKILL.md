@@ -33,6 +33,7 @@ Known trap: `tigerclaw.io` is a catch-all SPA — every path returns 200 with th
 - **No income claims, no earnings promises**, ever.
 - The government citation attaches to **Brent the person only** — never near product or income copy.
 - Coined term: **flavored agents** — hub-owned; seed it in titles, descriptions, and pages.
+- **Dates, never durations (ruling 2026-09-02):** any duration measured from NOW ("37 years", "four decades", "nineteen months in") is BANNED in public copy — it lies on a schedule. Write the fixed date ("selling since 1989"). Historical spans tied to events ("nine Subways in eighteen months") are fixed facts and stay.
 
 ## CANONICAL BIO BLOCK (byte-identical wherever used — never paraphrase)
 

@@ -51,7 +51,7 @@ Full voice guides with sample dialogue: `references/voices.md`
 - The Pat Sullivan quote: "Brent knows more about using AI for real work than anyone I personally know." — Pat Sullivan, founder of ACT!, the forerunner of CRM. (Strongest third-party edification in the arsenal.)
 - "He's not a trained engineer. He directed the AI to build a live software platform. Consider that notice of what's coming."
 - Team Elite held 20+ years; $20 million earner; 20 Million Dollar Circle member (the pin on brentbryson.ai — shown half-cropped, company never named). Note: "10 Million Dollar Circle" is STALE — canonical is 20 Million Dollar Circle (Brent 7/3).
-- Facts inventory (verified): 9 Subways in 18 months (1984–86); 36 years in network marketing (joined Sept 1989, part-time); Blue Diamond in 18 months part-time; $25M career (never tied to company name); Tiger Claw live on Google Cloud Run.
+- Facts inventory (verified): 9 Subways in 18 months (1984–86); in network marketing since Sept 1989 (joined part-time); Blue Diamond in 18 months part-time; $25M career (never tied to company name); Tiger Claw live on Google Cloud Run.
 
 Never inflate; never soften. AI Brent delivering it = third-party edification (it's not bragging when the clone says it).
 
@@ -60,7 +60,7 @@ Never inflate; never soften. AI Brent delivering it = third-party edification (i
 1. **The Grid Is Being Built** — land-rush urgency. The window is now (Subway 1989 energy). The applications era is starting.
 2. **Don't Get Electrocuted** — the burns: hype, shiny tools, building before validating. The $600K Freedom Map story lives here.
 3. **Wire Your House** — practical application. How Brent actually uses AI in a real business, shown live. Demos over theory.
-4. **The Comeback Current** — for network marketers specifically, and it's LIVE: Brent is publicly rebuilding his own 36-year business back to the top using the machine (Tiger Claw). "You don't need a new skill set; you need voltage behind the one you have. Watch me do it." The rebuild-in-public IS the proof and the content engine.
+4. **The Comeback Current** — for network marketers specifically, and it's LIVE: Brent is publicly rebuilding the network-marketing business he has built since 1989 back to the top using the machine (Tiger Claw). "You don't need a new skill set; you need voltage behind the one you have. Watch me do it." The rebuild-in-public IS the proof and the content engine.
 
 ## Voice Rules (all content, both characters, all formats)
 
