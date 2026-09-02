@@ -83,9 +83,9 @@ Census regenerated 2026-08-29T04:43:23Z from live disk (182 SKILL.md files measu
 - **signal-mine** — Run the signal-mining pipeline — find public evidence of demand, fear, confusion, and intent before people become leads, then map communities, creators, and par
 - **skill-miner** — Mine Brent's past Claude Code session transcripts to surface recurring routines that should become reusable skills, deduped against what already exists, then SU
 - **system-status-triage** — Use when the tiger-claw admin dashboard (wizard.tigerclaw.io/admin) shows YELLOW (DEGRADED) or RED (DOWN), a dependency card is red, a fire-test receipt FAILs, 
-- **the-rebuild** — Loads the full strategic context of Brent's comeback — rebuilding his NuSkin business with Tiger/AI to requalify his income, and the AI + network-marketing "tip
+- **the-rebuild** — Loads the full strategic context of Brent's comeback — rebuilding his network-marketing business with Tiger/AI to requalify his income, and the AI + network-marketing "tip
 - **tiger-doc-keeper** — The TIGER CLAW Document Keeper
-- **tiger-leader-hunt** — Weekly discovery of NEW network-marketing leaders, coaches, trainers, and book authors with large teams (NuSkin + competitors) to partner with for a white-label
+- **tiger-leader-hunt** — Weekly discovery of NEW network-marketing leaders, coaches, trainers, and book authors with large teams (his company + competitors) to partner with for a white-label
 - **tigerclaw-daily-checks** — "Run Tiger Claw's operational health checks end-to-end and report one Tiger-only verdict
 - **whitelabel-radar** — Turns a 30-day trend pulse into a segmented, contactable white-label / group-sale target list of network-marketing leaders for Brent's Tiger Claw
 

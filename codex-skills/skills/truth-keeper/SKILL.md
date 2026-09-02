@@ -26,7 +26,7 @@ the line between them.
   - `The Truth.md` — master blueprint (TL;DR, mission, operator profile, project portfolio, Pebo Code, coding harness)
   - `General Information.md` — identity/contact/legacy/targets/mandates (**PII — never commit to git**)
   - `F.I.T.FO.md` — operating ethos
-  - `What-Is-NuSkin.md` — the business being rebuilt
+  - the vault's What-Is doc for the company being rebuilt (private; filename carries the company name)
   - `SKILLS-INDEX.md` — the installed skills in `~/.codex/skills/`
   - `TECH-STACK.md` — roster + repo pointers for shared infra (detail stays in each repo)
 - **Project layer → the project's GitHub repo** (`bbrysonelite-max/*`), next to the
