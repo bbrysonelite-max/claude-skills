@@ -62,7 +62,7 @@ Amplification of what you already have — never a magic pill.
 3. **Wire Your House** — practical application. How Brent actually uses AI in a real business, shown
    live. Demos over theory.
 4. **The Comeback Current** — for network marketers specifically, and it's LIVE: Brent is publicly
-   rebuilding his own 36-year business back to the top using the machine (Tiger Claw). "You don't
+   rebuilding the network-marketing business he has built since 1989 back to the top using the machine (Tiger Claw). "You don't
    need a new skill set; you need voltage behind the one you have. Watch me do it." The
    rebuild-in-public IS the proof and the content engine.
 
