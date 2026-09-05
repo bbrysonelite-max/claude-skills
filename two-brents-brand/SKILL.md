@@ -1,6 +1,6 @@
 ---
 name: two-brents-brand
-description: "Use whenever creating ANY content for Brent — YouTube scripts, hooks, social posts, landing pages, emails, community content — or when he says \"Two Brents,\" \"AI Brent,\" \"Brent Classic,\" \"the clone,\" \"brand card,\" \"video card,\" \"Probe Academy,\" \"AlienProbe,\" \"in my voice,\" or \"on brand.\" Also trigger before writing anything that teaches AI to non-technical audiences or network marketers on his behalf. Twin: this is the BRAND layer (voice, characters, story canon, compliance); for the NuSkin requalification mission, the Mine, or the Flip the Script funnel use /the-rebuild instead."
+description: "Use whenever creating ANY content for Brent — YouTube scripts, hooks, social posts, landing pages, emails, community content — or when he says \"Two Brents,\" \"AI Brent,\" \"Brent Classic,\" \"the clone,\" \"brand card,\" \"video card,\" \"Probe Academy,\" \"AlienProbe,\" \"in my voice,\" or \"on brand.\" Also trigger before writing anything that teaches AI to non-technical audiences or network marketers on his behalf. Twin: this is the BRAND layer (voice, characters, story canon, compliance); for the requalification mission, the Mine, or the Flip the Script funnel use /the-rebuild instead."
 ---
 
 # The Two Brents Brand System
@@ -21,7 +21,7 @@ mythology stands unchanged; the store is what the probe sells.
 A TIME play, not a morality play. Same man, two timelines. The gap between them is the product.
 
 - **BRENT CLASSIC (Human Brent):** 66, plainspoken, world-weary, honest about being lost. "What the
-  freaking hell is an agent?" energy. NOT pathetic — he earned his skepticism the hard way ($600K
+  freaking hell is an agent?" energy. NOT pathetic — he earned his skepticism the hard way (an expensive
   lesson) and sometimes his old-school instinct is RIGHT, which keeps him dignified and keeps AI
   Brent honest. He is the viewer.
 - **AI BRENT (The Clone):** Articulate, confident, wry, never patronizing. Amused and fond toward
@@ -34,7 +34,7 @@ A TIME play, not a morality play. Same man, two timelines. The gap between them 
 
 - Plainspoken, story-first, slightly irreverent (the alien wink). Zero jargon.
 - Never say "LLM." Say "the machine" or "the clone" or "AI."
-- Franklin quotes over tech quotes. Brent's real history (Subway, Nu Skin, Freedom Map, Whisper Rock)
+- Franklin quotes over tech quotes. Brent's real history (Subway, network marketing, Whisper Rock)
   over hypotheticals.
 - Talk to one person, not an audience.
 - Mild profanity in Brent Classic's register is fine ("what the freaking hell"); AI Brent never curses.
@@ -46,8 +46,9 @@ A TIME play, not a morality play. Same man, two timelines. The gap between them 
 
 ## Guardrails
 
-Check all three rungs on EVERY piece: the **Nu Skin fence** · the **$25M rule** (never Nu Skin's name
-and a dollar figure in the same piece) · the **Tiger public-copy fence** ("there are no guarantees").
+Check all three rungs on EVERY piece: the **company-name fence** (the network marketing company is
+never named in public copy) · the **$25M rule** (never the company's name and a dollar figure in the
+same piece) · the **Tiger public-copy fence** ("there are no guarantees").
 Never promise income. Never trash a company by name. Read the full ladder + banned-words list in
 `references/compliance.md` before anything goes public.
 

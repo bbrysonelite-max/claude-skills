@@ -2,15 +2,16 @@
 
 Check ALL THREE rungs on every piece of content before it is published.
 
-## Rung 1 — The Nu Skin Fence (from What-Is-NuSkin.md)
+## Rung 1 — The company-name fence (from the private company reference on the local shelf)
 
-PRIVATE-zone material never appears publicly — no commission figures, no comp-plan mechanics with
-Brent's numbers, no market-concentration details, no income claims tied to Nu Skin by name.
+The network marketing company is NEVER named in public copy. PRIVATE-zone material never appears
+publicly either — no commission figures, no comp-plan mechanics with Brent's numbers, no
+market-concentration details, no income claims tied to the company by name.
 
 ## Rung 2 — The $25M Rule (Brent's ruling, 2026-07-03)
 
-The $25M / $20M-pin / lifetime-arc claims are permitted publicly ONLY when never attached to Nu Skin
-by name. "Network marketing" as industry label is fine. Pin imagery only half-cropped.
+The $25M+ / pin / lifetime-arc claims are permitted publicly ONLY when never attached to the company
+by name. Never "$30M". "Network marketing" as industry label is fine. Pin imagery only half-cropped.
 
 ## Rung 3 — The Tiger Public-Copy Fence
 

@@ -1,7 +1,7 @@
 {
   "controlNumber": "004",
   "variation": "marketing",
-  "recipient": "Jon Jackson",
+  "recipient": "Example Recipient",
   "recipientLabel": "Prepared exclusively for",
   "author": "Brent Bryson",
   "entity": "Mariah Marketing LLC",
@@ -12,7 +12,7 @@
   "confidential": true,
   "receipt": {
     "include": true,
-    "issuedTo": "Jon Jackson",
+    "issuedTo": "Example Recipient",
     "returnEmail": "support@tigerclaw.io"
   },
   "bodyHtmlPath": "body.example.html",

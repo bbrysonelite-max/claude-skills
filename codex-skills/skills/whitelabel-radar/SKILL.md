@@ -7,7 +7,7 @@ description: "Turns a 30-day trend pulse into a segmented, contactable white-lab
 
 Find NM leaders who already sell AI/recruiting education to their own teams, and pitch them a
 white-labeled Tiger Claw they resell as their own. The model: **they teach AI; you give their
-students the actual agent, branded as theirs.** Brent's 36-year Team Elite record (brentbryson.ai)
+students the actual agent, branded as theirs.** Brent's record selling since 1989 (brentbryson.ai)
 is the door-opener.
 
 > **Pattern note:** this is a *template* for last30days-based use-case skills — run the pulse, extract
@@ -40,7 +40,7 @@ is the door-opener.
    website contact/booking page, YouTube "About" business email, LinkedIn, IG DM. Never a scraped blast.
 5. **Write the dossier** to `~/Desktop/whitelabel-target-dossier.md` (update if it exists): a table per
    tier (name · where · what they sell · contact path · tailored angle), plus a leader-to-leader
-   outreach template that opens with genuine reference to their work, states Brent's Team Elite
+   outreach template that opens with genuine reference to their work, states Brent's top-rank
    credibility, links **brentbryson.ai**, and offers a 15-minute white-label demo. Value-first, no grind.
 6. **Update the pipeline tracker** at `~/Desktop/partner-pipeline.md`: append any genuinely-new target
    as a `new` row (target · tier · channel · status · last touch · next action · notes). NEVER overwrite

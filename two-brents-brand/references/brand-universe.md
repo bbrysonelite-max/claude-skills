@@ -45,8 +45,8 @@ mythology stands unchanged; the store is what the probe sells.**
 
 In Brent's ~/.claude/skills stack, this skill is the BRAND LAYER. `write-content`, `cadence`,
 `heygen-video`, and `blotato-post` should draw voice/story/compliance rules from here.
-What-Is-NuSkin.md remains the canonical Nu Skin reference; this skill imports its fence, never
-duplicates its contents.
+The private company reference on Brent's local shelf remains canonical; this skill imports its fence,
+never duplicates its contents.
 
 ## The Promise (Limitless, reframed safely)
 
@@ -57,8 +57,8 @@ Amplification of what you already have — never a magic pill.
 
 1. **The Grid Is Being Built** — land-rush urgency. The window is now (Subway 1989 energy). The
    applications era is starting.
-2. **Don't Get Electrocuted** — the burns: hype, shiny tools, building before validating. The $600K
-   Freedom Map story lives here.
+2. **Don't Get Electrocuted** — the burns: hype, shiny tools, building before validating. The
+   expensive-lesson story lives here (detail on the local shelf only).
 3. **Wire Your House** — practical application. How Brent actually uses AI in a real business, shown
    live. Demos over theory.
 4. **The Comeback Current** — for network marketers specifically, and it's LIVE: Brent is publicly
