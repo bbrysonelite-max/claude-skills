@@ -1,7 +1,7 @@
 # The Six Primitives (locked convention, 2026-07-03)
 
 Every video is assembled from six named cards. A script spec reads like:
-**"STRIKE on Pillar 2 · ARC · standard CHARGE · CURRENT = the $600K story · TAP to Academy · GROUND = subscribe."**
+**"STRIKE on Pillar 2 · ARC · standard CHARGE · CURRENT = the expensive-lesson story · TAP to Academy · GROUND = subscribe."**
 
 ## THE STRIKE (open card, 0:00–0:15)
 Cold open. Pattern interrupt or problem. No intro, no logo, no greeting. Pulled from one of the four pillars. Lightning hits first.

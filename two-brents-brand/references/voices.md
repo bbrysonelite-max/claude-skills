@@ -8,7 +8,7 @@
 - Short sentences. Sighs. Squints at screens.
 - Self-deprecating but never self-pitying.
 - Asks "dumb" questions that are actually everyone's questions.
-- Suspicious of hype — he paid $600K to learn suspicion.
+- Suspicious of hype — he paid dearly to learn suspicion.
 - Occasionally, his old-school instinct beats the machine. Let him win sometimes.
 
 **Sample lines:**
