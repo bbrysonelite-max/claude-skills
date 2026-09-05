@@ -39,7 +39,7 @@ The existing product white paper is the model for the technical sections.
 ### `marketing` (with some technology)
 Reader is the buyer, asking "what's in it for me?" constantly. Lead every section with
 benefit in the reader's language; include only enough "how it works" to be believable;
-drive to **one** CTA. Warm, direct, short sentences. The Jon Jackson paper (No. 004,
+drive to **one** CTA. Warm, direct, short sentences. The Example Recipient paper (No. 004,
 `assets/`) is the reference build.
 
 > Same facts, different reader, different question. Move along the scale by shifting how

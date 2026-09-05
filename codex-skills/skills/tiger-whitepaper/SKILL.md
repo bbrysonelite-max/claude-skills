@@ -48,7 +48,7 @@ for the full doctrine of each variation, the brand system, and the body CSS clas
 node scripts/build-whitepaper.mjs assets/spec.example.json   # renders the worked example
 ```
 
-The worked example (`assets/body.example.html` + `spec.example.json`) is the Jon Jackson
+The worked example (`assets/body.example.html` + `spec.example.json`) is the Example Recipient
 marketing paper, No. 004 — copy its patterns.
 
 ## Codex Runtime

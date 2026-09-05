@@ -173,3 +173,10 @@ brent-cro
 codex-skills/skills/the-rebuild
 codex-skills/skills/tiger-leader-hunt
 two-brents-brand/references/credibility.md
+
+# BEACON 2026-09-04: the codex mirror of two-brents-brand is the re-drift engine.
+# It is a stale monolithic copy of a skill that now lives split across
+# two-brents-brand/references/*, and it carried the company name, rank names and
+# the dated private timeline back onto the public tree after the 09-02 scrub.
+# Kept on disk for the codex shelf; never mirrored publicly again.
+codex-skills/skills/two-brents-brand
